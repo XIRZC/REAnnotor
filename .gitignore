@@ -1,4 +1,6 @@
 __pycache__
 */__pycache__
 scenes
+!scenes/.gitkeep
 annotations
+!annotations/.gitkeep
