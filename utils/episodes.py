@@ -1,13 +1,10 @@
 # author: mrxirzzz
 
-from ast import IsNot
-import enum
 import os
 from pathlib import Path
 import json
 import argparse
 import random
-from re import I
 
 import airsim
 import numpy as np

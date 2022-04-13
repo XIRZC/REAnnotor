@@ -27,7 +27,7 @@ Preparing the AirVLN dataset which comprises of 25 airsim scenarios which we wil
 
 After downloading 25 scenarios, you can just use `scripts/stsplit.sh` for whole split scene running in the background, or use `scripts/stscene.sh` for single scene running for scene-seperate case. And you must ensure you have `settings` subfolder in the root path.
 
-After running the corresponding scenarios, just use `scripts/save_imgs.sh` for saving the corresponding episodes frames gotten in each navigation position. And you must ensure you have `annotation` subfolder in the root path. And you will get `data/${split}/JPEGImages` and `data/${split}/expressions.json`.
+After running the corresponding scenarios, just use `scripts/save_imgs.sh` for saving the corresponding episodes frames gotten in each navigation position. And you must ensure you have `annotation` subfolder in the root path. And you will get `data/${split}/${scene}/JPEGImages` and `data/${split}/${scene}/expressions.json`.
 
 ## Using the software for annotating
 
