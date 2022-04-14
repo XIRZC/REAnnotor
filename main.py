@@ -112,8 +112,23 @@ def main(args):
 
     dpg.create_context()
 
+    # Chinese support
+    with dpg.font_registry():
+        with dpg.font("resources/wqy-MicroHei.ttf", 20) as font1:
+        
+            # add the default font range
+            dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+            # helper to add range of characters
+            #    Options:
+            #        mvFontRangeHint_Chinese_Full
+            #        mvFontRangeHint_Chinese_Simplified_Common
+            dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Simplified_Common)
+
+
     # Main window for UI
     with dpg.window(label="AirVLN RE Annotation Tool", width=1440, height=960):
+
+        dpg.bind_font(font1)
 
         # Menu bar settings
         #TODO
@@ -169,7 +184,7 @@ def main(args):
         width, height, data = load_imgs([episodes, False])
         width_seg, height_seg, data_seg = load_imgs([episodes, True])
         # picture registry
-        with dpg.texture_registry(show=True):
+        with dpg.texture_registry(show=False):
             dpg.add_dynamic_texture(width, height, data, tag="origin_frame")
             dpg.add_dynamic_texture(width_seg, height_seg, data_seg, tag="seg_frame")
 
@@ -187,7 +202,7 @@ def main(args):
             # tranlated navigation instructions and operating logs
             with dpg.group():
                 # Insturctions
-                dpg.add_text(u'使用说明：')
+                dpg.add_text('使用说明：')
                 # Navigation instructions, parsed referring expression highlighted and translated results
                 dpg.add_text('')
                 # Operating logs

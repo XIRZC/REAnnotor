@@ -224,18 +224,27 @@ class Episodes(object):
 
 
     def fly_by_trajectory(self, split, episode, save_path, filt):
-        split_dir = Path(save_path) / split / 'JPEGImages'
+        # split_dir = Path(save_path) / split / 'JPEGImages'
+        split_dir = Path(save_path) / split
         epi_id = episode['episode_id']
         tra_id = episode['trajectory_id']
         sce_id = episode['scene_id']
         opath = episode['reference_path']
         instruction = episode['instruction']['instruction_text']
-        save_dir = split_dir / '{:02d}_{}_{}'.format(sce_id, tra_id, epi_id)
-        if not save_dir.exists():
+        save_origin_dir = split_dir /  'origin' / '{:02d}_{}_{}'.format(sce_id, tra_id, epi_id)
+        save_seg_dir = split_dir /  'seg' / '{:02d}_{}_{}'.format(sce_id, tra_id, epi_id)
+        if not save_origin_dir.exists():
             try:
-                save_dir.mkdir(parents=True)
+                save_origin_dir.mkdir(parents=True)
             except OSError:
-                if not save_dir.is_dir():
+                if not save_origin_dir.is_dir():
+                    raise
+
+        if not save_seg_dir.exists():
+            try:
+                save_seg_dir.mkdir(parents=True)
+            except OSError:
+                if not save_seg_dir.is_dir():
                     raise
 
         if len(opath) <= 40 or not filt:
@@ -254,25 +263,31 @@ class Episodes(object):
             frames = []
             RES = self.parse_re(episode)
             for i, pos in enumerate(npath):
-                frame_name = save_dir / "{:03d}.jpg".format(i)
-                frame_seg_dir = save_dir / 'segmentation' 
-                if not frame_seg_dir.exists():
-                    try:
-                        frame_seg_dir.mkdir(parents=True)
-                    except OSError:
-                        if not frame_seg_dir.is_dir():
-                            raise
-                frame_name_seg = frame_seg_dir / "{:03d}.jpg".format(i)
+                frame_origin_name = save_origin_dir / "{:03d}.jpg".format(i)
+                frame_seg_name = save_seg_dir / "{:03d}.jpg".format(i)
 
                 self.client.simSetVehiclePose(pos, True)
                 frame = self.get_frame()
-                frames.append(frame_name.name[:-4])
+                frames.append(frame_origin_name.name[:-4])
                 if save_path:
-                    airsim.write_png(os.path.normpath(str(frame_name)), frame[0]) 
-                    airsim.write_png(os.path.normpath(str(frame_name_seg)), frame[1]) 
+                    airsim.write_png(os.path.normpath(str(frame_origin_name)), frame[0]) 
+                    airsim.write_png(os.path.normpath(str(frame_seg_name)), frame[1]) 
 
             print('Over!!!')
-            return frames, RES, save_dir.name
+            metas= dict()
+            instruction = episode['instruction']['instruction_text']
+            res = dict()
+            for i, RE in enumerate(RES):
+                res[str(i)] = dict()
+                res[str(i)]['exp'] = RE
+            metas['instruction'] = instruction
+            metas['expressions'] = res
+            metas['frames'] = frames
+            with (Path(save_origin_dir) / 'expressions.json').open(mode='a+') as f:
+                f.write(json.dumps(metas))
+            with (Path(save_seg_dir) / 'expressions.json').open(mode='a+') as f:
+                f.write(json.dumps(metas))
+            return frames, RES, save_origin_dir.name
         else:
             return None, None, None
 
@@ -304,10 +319,10 @@ class Episodes(object):
                 metas['videos'][vid_name]['instruction'] = instruction
                 metas['videos'][vid_name]['expressions'] = res
                 metas['videos'][vid_name]['frames'] = FRAMES
-        
-        if save_path:
-           with (Path(save_path) / split / 'expressions.json').open(mode='a+') as f:
-               f.write(json.dumps(metas))
+
+        # if save_path:
+        #    with (Path(save_path) / split / 'expressions.json').open(mode='a+') as f:
+        #        f.write(json.dumps(metas))
 
 
 if __name__ == '__main__':
