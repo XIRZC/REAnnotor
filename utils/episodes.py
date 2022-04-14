@@ -283,9 +283,9 @@ class Episodes(object):
             metas['instruction'] = instruction
             metas['expressions'] = res
             metas['frames'] = frames
-            with (Path(save_origin_dir) / 'expressions.json').open(mode='a+') as f:
+            with (Path(save_origin_dir) / 'expressions.json').open(mode='w+') as f:
                 f.write(json.dumps(metas))
-            with (Path(save_seg_dir) / 'expressions.json').open(mode='a+') as f:
+            with (Path(save_seg_dir) / 'expressions.json').open(mode='w+') as f:
                 f.write(json.dumps(metas))
             return frames, RES, save_origin_dir.name
         else:

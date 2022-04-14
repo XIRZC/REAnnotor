@@ -1,13 +1,16 @@
+# author: mrxirzzz
+
 import dearpygui.dearpygui as dpg
 import argparse
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+import json
+import requests 
+import random
+from hashlib import md5
 
 from utils.episodes import Episodes
-
-# Default Global Variables
 
 def load_json_callback(sender, app_data, user_data):
     load_json(user_data)
@@ -35,11 +38,12 @@ def load_split_callback(sender, app_data):
 
 def load_imgs_callback(sender, app_data, user_data):
     if_seg = user_data[1]
-    _, _, data = load_imgs(user_data)
+    width, height, data, exp = load_imgs(user_data)
     if if_seg:
         dpg.set_value('origin_frame', data)
     else:
         dpg.set_value('seg_frame', data)
+    return width, height, data, exp
 
 
 def load_imgs(user_data):
@@ -63,7 +67,9 @@ def load_imgs(user_data):
     else:
         width, height, _, data = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
             int(scene), trajectory_id, episode_id, frame_idx-1))
-    return  width, height, data
+    with (origin_img_dir / '{:02d}_{}_{}'.format(int(scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
+        exp = json.loads(f.read())
+    return  width, height, data, exp
 
 
 def idx_callback(sender, app_data, user_data):
@@ -85,12 +91,17 @@ def idx_callback(sender, app_data, user_data):
 
     if obj == 'episodes':
         episode_idx = op(episode_idx, mode)
+        frame_idx = 1
         dpg.set_value('episode_idx', episode_idx) 
+        dpg.set_value('frame_idx', frame_idx)
+        dpg.set_value('drag_int_frames', frame_idx)
         dpg.set_value('len_episodes', '/' + str(len(episodes)))
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
         dpg.configure_item('drag_int_episodes', max_value=len(episodes))
-        load_imgs_callback(sender, app_data, [episodes, True])
+        _, _, _, exp = load_imgs_callback(sender, app_data, [episodes, True])
         load_imgs_callback(sender, app_data, [episodes, False])
+        dpg.set_value('exp', '导航指令：' + exp['instruction'])
+        dpg.set_value('exp_translated', '导航指令翻译：' + translate(exp['instruction']))
     elif obj == 'frames':
         frame_idx = op(frame_idx, mode)
         dpg.set_value('frame_idx', frame_idx)
@@ -101,6 +112,32 @@ def idx_callback(sender, app_data, user_data):
         load_imgs_callback(sender, app_data, [episodes, False])
     else:
         raise ValueError('Not supported object:{} for {}'.format(obj, mode))
+
+
+def translate(instruction):
+    # translate navigation instructions by Baidu Translate API
+    query = instruction
+    from_lang = 'en'
+    to_lang = 'zh'
+    appid = '20210825000926998'
+    appkey = 'N54Ev0fTKeyiZ5Tn4tX3'
+    endpoint = 'http://api.fanyi.baidu.com'
+    path = '/api/trans/vip/translate'
+    url = endpoint + path
+    salt = random.randint(32768, 65536)
+    def make_md5(s, encoding='utf-8'):
+        return md5(s.encode(encoding)).hexdigest()
+    sign = make_md5(appid + query + str(salt) + appkey)
+
+    # Build request
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    payload = {'appid': appid, 'q': query, 'from': from_lang, \
+        'to': to_lang, 'salt': salt, 'sign': sign}
+
+    # Send request
+    r = requests.post(url, params=payload, headers=headers)
+    r = r.json()['trans_result'][0]['dst']
+    return r
 
 
 def main(args):
@@ -123,10 +160,11 @@ def main(args):
             #        mvFontRangeHint_Chinese_Full
             #        mvFontRangeHint_Chinese_Simplified_Common
             dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Simplified_Common)
+            dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Full)
 
 
     # Main window for UI
-    with dpg.window(label="AirVLN RE Annotation Tool", width=1440, height=960):
+    with dpg.window(label="AirVLN Referring Expression 标注工具", width=1440, height=960, no_collapse=True):
 
         dpg.bind_font(font1)
 
@@ -181,8 +219,8 @@ def main(args):
                  user_data=['plus', 'frames', episodes])
 
         # picutre loading and registry
-        width, height, data = load_imgs([episodes, False])
-        width_seg, height_seg, data_seg = load_imgs([episodes, True])
+        width, height, data, exp = load_imgs([episodes, False])
+        width_seg, height_seg, data_seg, _ = load_imgs([episodes, True])
         # picture registry
         with dpg.texture_registry(show=False):
             dpg.add_dynamic_texture(width, height, data, tag="origin_frame")
@@ -202,11 +240,15 @@ def main(args):
             # tranlated navigation instructions and operating logs
             with dpg.group():
                 # Insturctions
-                dpg.add_text('使用说明：')
+                instructions = '使用说明：已自动解析表达式，如有部分错误可通过弹窗编辑。可通过方向键或wasd键同时调整视频的episode和frame序号，在对应帧单击一个高亮的表达式，使用单击选定一个或多个segmentation的mask，选定后会自动保存，并在原图显示已选定的mask。'
+                dpg.add_text(default_value=instructions, wrap=0)
                 # Navigation instructions, parsed referring expression highlighted and translated results
-                dpg.add_text('')
+                dpg.add_text('导航指令：' + exp['instruction'], tag='exp', wrap=0)
+                dpg.add_text('导航指令翻译：' + translate(exp['instruction']), tag='exp_translated', wrap=0)
+                exps = exp['expressions']
+
                 # Operating logs
-                dpg.add_text("Logs: ")
+                dpg.add_text("操作日志：")
 
 
     # key bind for episode and frame editing
@@ -238,7 +280,7 @@ def main(args):
         dpg.add_key_press_handler(dpg.mvKey_S, callback=vim_key_fe_callback, user_data=episodes)
 
 
-    dpg.create_viewport(title='AirVLN RE Annotation Tool', width=1440, height=960)
+    dpg.create_viewport(title='AirVLN Referring Expression 标注工具', width=1440, height=960)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.start_dearpygui()
