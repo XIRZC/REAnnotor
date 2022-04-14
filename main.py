@@ -111,7 +111,7 @@ def main(args):
     default_frame_idx = 1
 
     dpg.create_context()
-
+    
     # Chinese support
     with dpg.font_registry():
         with dpg.font("resources/wqy-MicroHei.ttf", 20) as font1:
@@ -207,6 +207,36 @@ def main(args):
                 dpg.add_text('')
                 # Operating logs
                 dpg.add_text("Logs: ")
+
+
+    # key bind for episode and frame editing
+    def vim_key_fe_callback(sender, app_data, user_data):
+        # h,l for episode minus and plus, j,k for frame plus and minus, like vim motion bind keys
+        episodes = user_data
+        if app_data in [ 72, 87, 265 ]: # press h or w or up key
+            idx_callback(sender, app_data, ['minus', 'episodes', episodes])
+        elif app_data in [ 74, 68, 262 ]: # press j or d or right key
+            idx_callback(sender, app_data, ['plus', 'frames', episodes])
+        elif app_data in [ 75, 65, 263 ]: # press k or a or left key
+            idx_callback(sender, app_data, ['minus', 'frames', episodes])
+        elif app_data in [ 76, 83, 264 ]: # press l or s or down key
+            idx_callback(sender, app_data, ['plus', 'episodes', episodes])
+        else:
+            print('Other key pressed!')
+    with dpg.handler_registry():
+        dpg.add_key_press_handler(dpg.mvKey_H, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_J, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_K, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_L, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_Up, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_Right, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_Left, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_Down, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_W, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_D, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_A, callback=vim_key_fe_callback, user_data=episodes)
+        dpg.add_key_press_handler(dpg.mvKey_S, callback=vim_key_fe_callback, user_data=episodes)
+
 
     dpg.create_viewport(title='AirVLN RE Annotation Tool', width=1440, height=960)
     dpg.setup_dearpygui()
