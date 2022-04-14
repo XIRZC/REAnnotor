@@ -2,8 +2,6 @@
 
 import dearpygui.dearpygui as dpg
 import argparse
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 import json
 import requests 
@@ -13,7 +11,10 @@ from hashlib import md5
 from utils.episodes import Episodes
 
 def load_json_callback(sender, app_data, user_data):
-    load_json(user_data)
+    episodes, f = load_json(user_data)
+    dpg.set_value('episode_idx', 1)
+    dpg.set_value('frame_idx', 1)
+    idx_callback(sender, app_data, ['minus', 'episodes', episodes])
 
 def load_json(user_data):
     split = dpg.get_value('split')
@@ -39,7 +40,7 @@ def load_split_callback(sender, app_data):
 def load_imgs_callback(sender, app_data, user_data):
     if_seg = user_data[1]
     width, height, data, exp = load_imgs(user_data)
-    if if_seg:
+    if not if_seg:
         dpg.set_value('origin_frame', data)
     else:
         dpg.set_value('seg_frame', data)
@@ -102,6 +103,7 @@ def idx_callback(sender, app_data, user_data):
         load_imgs_callback(sender, app_data, [episodes, False])
         dpg.set_value('exp', '导航指令：' + exp['instruction'])
         dpg.set_value('exp_translated', '导航指令翻译：' + translate(exp['instruction']))
+
     elif obj == 'frames':
         frame_idx = op(frame_idx, mode)
         dpg.set_value('frame_idx', frame_idx)
@@ -142,7 +144,7 @@ def translate(instruction):
 
 def main(args):
 
-    default_split = 'val_seen'
+    default_split = 'train'
     default_scene = 3
     default_episode_idx = 1
     default_frame_idx = 1
@@ -164,7 +166,7 @@ def main(args):
 
 
     # Main window for UI
-    with dpg.window(label="AirVLN Referring Expression 标注工具", width=1440, height=960, no_collapse=True):
+    with dpg.window(label="AirVLN Referring Expression 标注工具", width=1680, height=1080, no_collapse=True):
 
         dpg.bind_font(font1)
 
@@ -196,6 +198,8 @@ def main(args):
             # Load button
             dpg.add_button(user_data=[episodes, f], callback=load_json_callback,\
                 label="Load", tag='load_btn')
+
+
             # episode_idx selector
             dpg.add_text('| State: Episode')
             dpg.add_text(default_episode_idx, tag='episode_idx')
@@ -232,7 +236,7 @@ def main(args):
 
             # space to show origin and segmentation frames
             with dpg.group():
-                factor = 3
+                factor = 3.3
                 dpg.add_image("origin_frame", width=width*factor, height=height*factor)
                 dpg.add_image("seg_frame", width=width*factor, height=height*factor)
 
@@ -245,10 +249,22 @@ def main(args):
                 # Navigation instructions, parsed referring expression highlighted and translated results
                 dpg.add_text('导航指令：' + exp['instruction'], tag='exp', wrap=0)
                 dpg.add_text('导航指令翻译：' + translate(exp['instruction']), tag='exp_translated', wrap=0)
-                exps = exp['expressions']
+                dpg.add_text('已解析表达式(存在冗余或不准确)：')
+                exps = []
+                items = []
+                for key, value in exp['expressions'].items():
+                    exps.append(value['exp']) 
+                    items.append(dpg.add_selectable(label=value['exp']))
+                def _selection(sender, app_data, user_data):
+                    for item in user_data:
+                        if item != sender:
+                            dpg.set_value(item, False)
+                for item in items:
+                    dpg.configure_item(item, callback=_selection, user_data=items)
 
+                # print(exps)
                 # Operating logs
-                dpg.add_text("操作日志：")
+                # dpg.add_text("操作日志：")
 
 
     # key bind for episode and frame editing
@@ -280,7 +296,7 @@ def main(args):
         dpg.add_key_press_handler(dpg.mvKey_S, callback=vim_key_fe_callback, user_data=episodes)
 
 
-    dpg.create_viewport(title='AirVLN Referring Expression 标注工具', width=1440, height=960)
+    dpg.create_viewport(title='AirVLN Referring Expression 标注工具', width=1680, height=1080)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.start_dearpygui()
