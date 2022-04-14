@@ -20,14 +20,14 @@ class Episodes(object):
         # for demonstration
 
         sets = ['train', 'val_seen', 'val_unseen', 'test']
-        self.root_path = Path(__file__).resolve().parent
+        self.root_path = Path(__file__).resolve().parent.parent
         self.anno_path = self.root_path / 'annotations'
         for s in sets:
             if not (self.anno_path / s).exists():
                 print('Note: scene-seperate s for {} not exists, generating...')
                 self.save_scenes(s, self.load_dict(s))
 
-        if only_json:
+        if not only_json:
             # connect to the AirSim simulator
             # print('------------------------------------------')
             # self.client = airsim.VehicleClient(port=int(scene)+25030)
@@ -42,6 +42,8 @@ class Episodes(object):
             self.episodes = self.load_scene(self.split, self.scene)[0]['episodes']
         else:
             self.episodes = self.load_dict(self.split)['episodes']
+        for episode in self.episodes:
+            episode['len_frames'] = len(episode['reference_path'])
 
         self.metas = []
 
