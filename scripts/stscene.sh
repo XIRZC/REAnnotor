@@ -9,5 +9,5 @@ PREFIX2="-opengl -NOSOUND -WINDOWED -RexX=640 -RexY=480 -NoVSync -BENCHMARK -FPS
 
 echo "Input scene_id:"
 read id
-$PREFIX1 ../scenes/${scenes[id-1]}/hi.sh $PREFIX2 settings/$(id).json &
+$PREFIX1 ../scenes/${scenes[id-1]}/LinuxNoEditor/hi.sh $PREFIX2 settings/$(id).json &
 	

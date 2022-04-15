@@ -5,5 +5,3 @@ stanfordcorenlp
 airsim
 dearpygui
 numpy
-opencv-python
-matplotlib

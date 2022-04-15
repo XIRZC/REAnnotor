@@ -1,27 +1,51 @@
 # author: mrxirzzz
 
+import os
+from re import I
 import dearpygui.dearpygui as dpg
 import argparse
 from pathlib import Path
 import json
+from numpy import einsum_path
 import requests 
 import random
 from hashlib import md5
 
 from utils.episodes import Episodes
 
-def load_json_callback(sender, app_data, user_data):
-    episodes, f = load_json(user_data)
-    dpg.set_value('episode_idx', 1)
-    dpg.set_value('frame_idx', 1)
-    idx_callback(sender, app_data, ['minus', 'episodes', episodes])
+# Global Variables
+Width_Win, Height_Win, Factor_Win = 1120, 880, 2
+Width_Linux, Height_Linux, Factor_Linux = 1680, 1080, 3.2
+WIDTH, HEIGHT, FACTOR = Width_Linux, Height_Linux, Factor_Linux
+default_split = 'train'
+default_scene = 3
+default_episode_idx = 1
+default_frame_idx = 1
+episodes, f = None, None
 
-def load_json(user_data):
+
+def write_json():
+    dic = dict()
+    dic['epoisodes'] = episodes
+    f.write(json.dumps(dic))
+
+
+def load_json_callback(sender, app_data, user_data):
+    # save all the staged episodes operations
+    write_json()
+    # load new json to episodes and generate new file IO object
+    load_json()
+    idx_callback(sender, app_data, ['reset', 'episodes'])
+
+def load_json():
     split = dpg.get_value('split')
     scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
+    global episodes, f
     episodes = Episodes(split, scene=scene, only_json=True).get_episodes()
-    f = open('annotations/{}_seg.json'.format(split), mode='a+')
-    return episodes, f
+    for epi in episodes:
+        epi['expressions'] = []  # list of referring expressions
+        epi['frames'] = []   # list of dict(key: expression, value: corresponding mask ndarray)
+    f = open('annotations/{}_seg.json'.format(split), mode='w+')
     
 
 def load_split_callback(sender, app_data):
@@ -38,7 +62,7 @@ def load_split_callback(sender, app_data):
 
 
 def load_imgs_callback(sender, app_data, user_data):
-    if_seg = user_data[1]
+    if_seg = user_data
     width, height, data, exp = load_imgs(user_data)
     if not if_seg:
         dpg.set_value('origin_frame', data)
@@ -51,7 +75,7 @@ def load_imgs(user_data):
     # picutre loading and registry
     # load information
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
-    episodes, if_seg = user_data[0], user_data[1]
+    if_seg = user_data
     scene = dpg.get_value('scene')
     split = dpg.get_value('split')
 
@@ -62,6 +86,10 @@ def load_imgs(user_data):
     # load pictures
     # print('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(origin_img_dir),\
     #         scene, trajectory_id, episode_id, frame_idx))
+    # print('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(origin_img_dir),\
+    #         int(scene), trajectory_id, episode_id, frame_idx-1))
+    assert os.path.exists('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(origin_img_dir),\
+            int(scene), trajectory_id, episode_id, frame_idx-1))
     if not if_seg:
         width, height, _, data = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(origin_img_dir),\
             int(scene), trajectory_id, episode_id, frame_idx-1))
@@ -74,7 +102,7 @@ def load_imgs(user_data):
 
 
 def idx_callback(sender, app_data, user_data):
-    mode, obj, episodes = user_data[0], user_data[1], user_data[2]
+    mode, obj = user_data[0], user_data[1]
     episode_idx, frame_idx, = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
     if sender == 'drag_int_episodes' or sender == 'drag_int_frames':
         drag_int_idx = int(dpg.get_value(sender))
@@ -85,8 +113,10 @@ def idx_callback(sender, app_data, user_data):
         elif mode == 'plus':
             if idx < dpg.get_item_configuration('drag_int_' + obj)['max_value']:
                 idx = idx + 1
-        else:
+        elif mode == 'drag':
             idx = drag_int_idx
+        else: # reset to 1
+            idx = 1
         dpg.set_value('drag_int_' + obj, idx)
         return idx
 
@@ -99,10 +129,30 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('len_episodes', '/' + str(len(episodes)))
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
         dpg.configure_item('drag_int_episodes', max_value=len(episodes))
-        _, _, _, exp = load_imgs_callback(sender, app_data, [episodes, True])
-        load_imgs_callback(sender, app_data, [episodes, False])
+        _, _, _, exp = load_imgs_callback(sender, app_data, True)
+        load_imgs_callback(sender, app_data, False)
         dpg.set_value('exp', '导航指令：' + exp['instruction'])
         dpg.set_value('exp_translated', '导航指令翻译：' + translate(exp['instruction']))
+        # exps = []
+        if 'expressions' not in episodes[episode_idx]:
+            episodes[episode_idx]['expressions'] = []
+        for value in exp['expressions'].values():
+            # exps.append(value['exp']) 
+            episodes[episode_idx]['expressions'].append(value['exp'])
+        dpg.delete_item('pop_up_exps_sub')
+        with dpg.group(tag='pop_up_exps_sub', parent='pop_up_exps'):
+            for e in episodes[episode_idx]['expressions']:
+                with dpg.group(horizontal=True, tag=e):
+                    dpg.add_input_text(default_value=e, tag=e + 'input', user_data=[e, 'upd'], callback=exps_callback, on_enter=True)
+                    # dpg.add_button(label='Delete', user_data=e, callback=lambda s, a, u: dpg.delete_item(u))
+                    dpg.add_button(label='Delete', user_data=[e, 'del'], callback=exps_callback)
+        items = []
+        dpg.delete_item('exps_sub')
+        with dpg.group(tag='exps_sub', parent='exps'):
+            for e in episodes[episode_idx]['expressions']:
+                items.append(dpg.add_selectable(label=e))
+        for item in items:
+            dpg.configure_item(item, callback=_selection, user_data=items)
 
     elif obj == 'frames':
         frame_idx = op(frame_idx, mode)
@@ -110,8 +160,9 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('len_episodes', '/' + str(len(episodes)))
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
         dpg.configure_item('drag_int_frames', max_value=episodes[episode_idx-1]['len_frames'])
-        load_imgs_callback(sender, app_data, [episodes, True])
-        load_imgs_callback(sender, app_data, [episodes, False])
+        load_imgs_callback(sender, app_data, True)
+        load_imgs_callback(sender, app_data, False)
+
     else:
         raise ValueError('Not supported object:{} for {}'.format(obj, mode))
 
@@ -141,13 +192,46 @@ def translate(instruction):
     r = r.json()['trans_result'][0]['dst']
     return r
 
+def _selection(sender, app_data, user_data):
+    for item in user_data:
+        if item != sender:
+            dpg.set_value(item, False)
+
+
+def exps_callback(sender, app_data, user_data):
+    exp, mode = user_data[0], user_data[1]
+    callback_val = dpg.get_value(sender)
+    print(exp, mode, callback_val)
+    episode_idx = int(dpg.get_value('episode_idx'))
+    if mode == 'add':
+        episodes[episode_idx]['expressions'].append(exp)
+        with dpg.group(horizontal=True, tag=exp, parent='pop_up_exps_sub'):
+            dpg.add_input_text(default_value=exp, tag=exp + 'input', user_data=[exp, 'upd'], callback=exps_callback, on_enter=True)
+            # dpg.add_button(label='Delete', user_data=e, callback=lambda s, a, u: dpg.delete_item(u))
+            dpg.add_button(label='Delete', tag=exp + 'delbtn', user_data=[exp, 'del', exp], callback=exps_callback)
+        # screen repeat exp
+        episodes[episode_idx]['expressions'] = list(set(episodes[episode_idx]['expressions']))
+    elif mode == 'del':
+        episodes[episode_idx]['expressions'].remove(exp)
+        dpg.delete_item(user_data[2])
+    elif mode == 'upd':
+        episodes[episode_idx]['expressions'].remove(exp)
+        dpg.configure_item(exp + 'input', user_data=[callback_val, 'upd'])
+        dpg.configure_item(exp + 'delbtn', user_data=[callback_val, 'del', exp])
+        episodes[episode_idx]['expressions'].append(callback_val)
+    else:   # save
+        items = []
+        dpg.delete_item('exps_sub')
+        with dpg.group(tag='exps_sub', parent='exps'):
+            for e in episodes[episode_idx]['expressions']:
+                items.append(dpg.add_selectable(label=e))
+        for item in items:
+            dpg.configure_item(item, callback=_selection, user_data=items)
+        dpg.configure_item('pop_edit_panel', show=False)
+        write_json()
+
 
 def main(args):
-
-    default_split = 'train'
-    default_scene = 3
-    default_episode_idx = 1
-    default_frame_idx = 1
 
     dpg.create_context()
     
@@ -166,22 +250,47 @@ def main(args):
 
 
     # Main window for UI
-    with dpg.window(label="AirVLN Referring Expression 标注工具", width=1680, height=1080, no_collapse=True):
+    with dpg.window(label="AirVLN Referring Expression 标注工具", width=WIDTH, height=HEIGHT, no_collapse=True, no_title_bar=True):
 
         dpg.bind_font(font1)
 
         # Menu bar settings
         #TODO
         with dpg.menu_bar():
-            with dpg.menu(label="File"):
-                dpg.add_menu_item(label="Load json file")
-                dpg.add_menu_item(label="Save json file")
-                dpg.add_menu_item(label="Save json file As")
+
+            with dpg.menu(label="Menu"):
+
+                dpg.add_menu_item(label="Load json file", callback=load_json)
+                dpg.add_menu_item(label="Save json file", callback=write_json)
+
+                with dpg.menu(label="Settings"):
+
+                    dpg.add_menu_item(label="Option 1")
+                    dpg.add_menu_item(label="Option 2", check=True)
+                    dpg.add_menu_item(label="Option 3", check=True, default_value=True)
+
+                    with dpg.child_window(height=60, autosize_x=True, delay_search=True):
+                        for i in range(10):
+                            dpg.add_text(f"Scolling Text{i}")
+
+                    dpg.add_slider_float(label="Slider Float")
+                    dpg.add_input_int(label="Input Int")
+                    dpg.add_combo(("Yes", "No", "Maybe"), label="Combo")
+
+            with dpg.menu(label="Tools"):
+
+                dpg.add_menu_item(label="Show About", callback=lambda:dpg.show_tool(dpg.mvTool_About))
+                dpg.add_menu_item(label="Show Metrics", callback=lambda:dpg.show_tool(dpg.mvTool_Metrics))
+                dpg.add_menu_item(label="Show Documentation", callback=lambda:dpg.show_tool(dpg.mvTool_Doc))
+                dpg.add_menu_item(label="Show Debug", callback=lambda:dpg.show_tool(dpg.mvTool_Debug))
+                dpg.add_menu_item(label="Show Style Editor", callback=lambda:dpg.show_tool(dpg.mvTool_Style))
+                dpg.add_menu_item(label="Show Font Manager", callback=lambda:dpg.show_tool(dpg.mvTool_Font))
+                dpg.add_menu_item(label="Show Item Registry", callback=lambda:dpg.show_tool(dpg.mvTool_ItemRegistry))
 
             with dpg.menu(label="Settings"):
-                dpg.add_menu_item(label="Setting 1", check=True)
-                dpg.add_menu_item(label="Setting 2")
-            dpg.add_menu_item(label="Help")
+
+                dpg.add_menu_item(label="Wait For Input", check=True, callback=lambda s, a: dpg.configure_app(wait_for_input=a))
+                dpg.add_menu_item(label="Toggle Fullscreen", callback=lambda:dpg.toggle_viewport_fullscreen())
 
         # Load split and scene json toolbar and statusbar for loaded json file
         with dpg.group(horizontal=True):
@@ -194,10 +303,9 @@ def main(args):
             scene_list = ['None', 1, 2, 3, 4, 5, 8,10, 11, 12, 14, 16,\
                 17, 20, 22, 23, 25, 26]
             dpg.add_combo(scene_list, tag='scene', default_value=default_scene, width=50) 
-            episodes, f = load_json([])
+            load_json()
             # Load button
-            dpg.add_button(user_data=[episodes, f], callback=load_json_callback,\
-                label="Load", tag='load_btn')
+            dpg.add_button(callback=load_json_callback, label="Load", tag='load_btn')
 
 
             # episode_idx selector
@@ -205,26 +313,32 @@ def main(args):
             dpg.add_text(default_episode_idx, tag='episode_idx')
             dpg.add_text('/{}'.format(len(episodes)), tag='len_episodes')
             dpg.add_button(arrow=True, direction=dpg.mvDir_Left, callback=idx_callback,\
-                 user_data=['minus', 'episodes', episodes])
+                 user_data=['minus', 'episodes'])
             dpg.add_drag_int(width=50, default_value=1, callback=idx_callback, min_value=1, max_value=len(episodes),\
-                 user_data=['drag', 'episodes', episodes], tag='drag_int_episodes')
+                 user_data=['drag', 'episodes'], tag='drag_int_episodes')
             dpg.add_button(arrow=True, direction=dpg.mvDir_Right, callback=idx_callback,\
-                 user_data=['plus', 'episodes', episodes])
+                 user_data=['plus', 'episodes'])
             # frame_idx selector
             dpg.add_text('Frame')
             dpg.add_text(default_frame_idx, tag='frame_idx')
             dpg.add_text('/{}'.format(episodes[default_episode_idx-1]['len_frames']), tag='len_frames')
             dpg.add_button(arrow=True, direction=dpg.mvDir_Left, callback=idx_callback, \
-                 user_data=['minus', 'frames', episodes])
+                 user_data=['minus', 'frames'])
             dpg.add_drag_int(width=90, default_value=1, callback=idx_callback, min_value=1,\
                  max_value=episodes[default_episode_idx-1]['len_frames'],\
-                 user_data=['drag', 'frames', episodes], tag='drag_int_frames')
+                 user_data=['drag', 'frames'], tag='drag_int_frames')
             dpg.add_button(arrow=True, direction=dpg.mvDir_Right, callback=idx_callback, \
-                 user_data=['plus', 'frames', episodes])
+                 user_data=['plus', 'frames'])
 
         # picutre loading and registry
-        width, height, data, exp = load_imgs([episodes, False])
-        width_seg, height_seg, data_seg, _ = load_imgs([episodes, True])
+        width, height, data, exp = load_imgs(False)
+        width_seg, height_seg, data_seg, _ = load_imgs(True)
+        # exps = []
+        if 'expressions' not in episodes[default_episode_idx]:
+            episodes[default_episode_idx]['expressions'] = []
+        for value in exp['expressions'].values():
+            # exps.append(value['exp']) 
+            episodes[default_episode_idx]['expressions'].append(value['exp'])
         # picture registry
         with dpg.texture_registry(show=False):
             dpg.add_dynamic_texture(width, height, data, tag="origin_frame")
@@ -236,9 +350,8 @@ def main(args):
 
             # space to show origin and segmentation frames
             with dpg.group():
-                factor = 3.3
-                dpg.add_image("origin_frame", width=width*factor, height=height*factor)
-                dpg.add_image("seg_frame", width=width*factor, height=height*factor)
+                dpg.add_image("origin_frame", width=width*FACTOR, height=height*FACTOR)
+                dpg.add_image("seg_frame", width=width*FACTOR, height=height*FACTOR)
 
             # space to show instructions, referring expressions highlighted navigation instructions,
             # tranlated navigation instructions and operating logs
@@ -249,18 +362,37 @@ def main(args):
                 # Navigation instructions, parsed referring expression highlighted and translated results
                 dpg.add_text('导航指令：' + exp['instruction'], tag='exp', wrap=0)
                 dpg.add_text('导航指令翻译：' + translate(exp['instruction']), tag='exp_translated', wrap=0)
-                dpg.add_text('已解析表达式(存在冗余或不准确)：')
-                exps = []
+                dpg.add_button(label='已解析表达式(存在冗余或不准确, 单击此处进行编辑)：', tag='pop_up_edit_btn')
+                with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
+                    with dpg.group(tag='pop_up_exps'):
+                        with dpg.group(tag='pop_up_exps_sub'):
+                            for e in episodes[default_episode_idx]['expressions']:
+                                with dpg.group(horizontal=True, tag=e):
+                                    dpg.add_input_text(default_value=e, tag=e + 'input', user_data=[e, 'upd'], callback=exps_callback, on_enter=True)
+                                    # dpg.add_button(label='Delete', user_data=e, callback=lambda s, a, u: dpg.delete_item(u))
+                                    dpg.add_button(label='Delete', tag=e + 'delbtn', user_data=[e, 'del', e], callback=exps_callback)
+                    dpg.add_separator()
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Save", width=75, user_data=[None, 'save'], callback=exps_callback)
+                        dpg.add_button(label="Cancel", width=75, callback=lambda: dpg.configure_item("pop_edit_panel", show=False))
                 items = []
-                for key, value in exp['expressions'].items():
-                    exps.append(value['exp']) 
-                    items.append(dpg.add_selectable(label=value['exp']))
-                def _selection(sender, app_data, user_data):
-                    for item in user_data:
-                        if item != sender:
-                            dpg.set_value(item, False)
-                for item in items:
-                    dpg.configure_item(item, callback=_selection, user_data=items)
+                with dpg.group(tag='exps'):
+                    with dpg.group(tag='exps_sub'):
+                        for e in episodes[default_episode_idx]['expressions']:
+                            items.append(dpg.add_selectable(label=e))
+                    for item in items:
+                        dpg.configure_item(item, callback=_selection, user_data=items)
+
+                # with dpg.group(horizontal=True, width=200):
+                #     dpg.add_text('where there is')
+                #     dpg.add_text('a will', color=(255, 0, 255))
+                #     dpg.add_text(', there is')
+                #     dpg.add_text('a way', color=(0, 255, 255))
+                #     dpg.add_text('No matter how dark long,')
+                #     dpg.add_text('the day', color=(255, 0, 255))
+                #     dpg.add_text('will arival')
+                #     dpg.add_text('when you get')
+                #     dpg.add_text('sunshine together', color=(255, 0, 255))
 
                 # print(exps)
                 # Operating logs
@@ -272,31 +404,31 @@ def main(args):
         # h,l for episode minus and plus, j,k for frame plus and minus, like vim motion bind keys
         episodes = user_data
         if app_data in [ 72, 87, 265 ]: # press h or w or up key
-            idx_callback(sender, app_data, ['minus', 'episodes', episodes])
+            idx_callback(sender, app_data, ['minus', 'episodes'])
         elif app_data in [ 74, 68, 262 ]: # press j or d or right key
-            idx_callback(sender, app_data, ['plus', 'frames', episodes])
+            idx_callback(sender, app_data, ['plus', 'frames'])
         elif app_data in [ 75, 65, 263 ]: # press k or a or left key
-            idx_callback(sender, app_data, ['minus', 'frames', episodes])
+            idx_callback(sender, app_data, ['minus', 'frames'])
         elif app_data in [ 76, 83, 264 ]: # press l or s or down key
-            idx_callback(sender, app_data, ['plus', 'episodes', episodes])
+            idx_callback(sender, app_data, ['plus', 'episodes'])
         else:
             print('Other key pressed!')
     with dpg.handler_registry():
-        dpg.add_key_press_handler(dpg.mvKey_H, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_J, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_K, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_L, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_Up, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_Right, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_Left, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_Down, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_W, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_D, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_A, callback=vim_key_fe_callback, user_data=episodes)
-        dpg.add_key_press_handler(dpg.mvKey_S, callback=vim_key_fe_callback, user_data=episodes)
+        # dpg.add_key_press_handler(dpg.mvKey_H, callback=vim_key_fe_callback)
+        # dpg.add_key_press_handler(dpg.mvKey_J, callback=vim_key_fe_callback)
+        # dpg.add_key_press_handler(dpg.mvKey_K, callback=vim_key_fe_callback)
+        # dpg.add_key_press_handler(dpg.mvKey_L, callback=vim_key_fe_callback)
+        # dpg.add_key_press_handler(dpg.mvKey_W, callback=vim_key_fe_callback)
+        # dpg.add_key_press_handler(dpg.mvKey_D, callback=vim_key_fe_callback)
+        # dpg.add_key_press_handler(dpg.mvKey_A, callback=vim_key_fe_callback)
+        # dpg.add_key_press_handler(dpg.mvKey_S, callback=vim_key_fe_callback)
+        dpg.add_key_press_handler(dpg.mvKey_Up, callback=vim_key_fe_callback)
+        dpg.add_key_press_handler(dpg.mvKey_Right, callback=vim_key_fe_callback)
+        dpg.add_key_press_handler(dpg.mvKey_Left, callback=vim_key_fe_callback)
+        dpg.add_key_press_handler(dpg.mvKey_Down, callback=vim_key_fe_callback)
 
 
-    dpg.create_viewport(title='AirVLN Referring Expression 标注工具', width=1680, height=1080)
+    dpg.create_viewport(title='AirVLN Referring Expression Annotation Tool', width=WIDTH, height=HEIGHT)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.start_dearpygui()

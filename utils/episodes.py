@@ -5,12 +5,16 @@ from pathlib import Path
 import json
 import argparse
 import random
+import re
 
 import airsim
 import numpy as np
 import nltk
 from nltk.tree import *
 from stanfordcorenlp import StanfordCoreNLP
+
+# Global Variables
+STANFORDCORENLP_PATH = r'/home/mrxir/stanford-corenlp-4.4.0'
 
 class Episodes(object):
 
@@ -71,7 +75,8 @@ class Episodes(object):
 
         frames = []
         print('Rand episode idx: {}'.format(idx))
-        return self.convert(self.episodes[idx], frames)
+        res = self.parse_re(self.episodes[idx])
+        return self.convert(self.episodes[idx], frames, res)
         
 
     def get_episodes(self):
@@ -193,7 +198,8 @@ class Episodes(object):
 
 
         instruction = episode['instruction']['instruction_text']
-        nlp = StanfordCoreNLP(r'/home/B/xiezc/stanford-corenlp-4.4.0')
+        print('Original Instruction:', instruction)
+        nlp = StanfordCoreNLP(STANFORDCORENLP_PATH)
         nsents = nltk.sent_tokenize(instruction) 
         RES = set()
         try: 
@@ -214,6 +220,13 @@ class Episodes(object):
                 dfs_traverse(tree, RES)
 
             print()
+            # for i in RES:
+            #     if len(re.split('and', i)) > 1:
+            #         RES.remove(i)
+            #         sps = re.split('and', i)
+            #         print(sps)
+            #         for sp in sps:
+            #             RES.add(sp)
             print('Traverse referring expression:')
             print(RES)
             nlp.close()
@@ -252,7 +265,6 @@ class Episodes(object):
             print('episode_id: {} of trajectory_id: {} in scene_id: {} for distance: {} with {} steps'\
                 .format(epi_id, tra_id, sce_id, episode['info']['geodesic_distance'], len(opath)))
             print('------------------------------------------')
-            print(instruction)
             npath = []
             for p in opath:
                 npath.append(airsim.Pose(airsim.Vector3r(*p[:3]), airsim.to_quaternion(*p[3:])))
@@ -339,5 +351,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     episodes = Episodes(args.split, args.scene, args.json)
-    episodes.run(args.split, args.oneturn, args.save_path, args.filt)
-
+    # episodes.run(args.split, args.oneturn, args.save_path, args.filt)
+    # episode = episodes.get_rand_episode(random.randint(0, len(episodes)))
+    episode = episodes.get_rand_episode(8)
