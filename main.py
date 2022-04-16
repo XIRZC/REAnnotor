@@ -5,6 +5,8 @@ import dearpygui.dearpygui as dpg
 import argparse
 from pathlib import Path
 import json
+import cv2
+import numpy as np
 
 # project packages imported
 from utils.episodes import Episodes
@@ -20,16 +22,17 @@ WIN_FACTOR = 1   # cause my windows has factor 1.5, so need to shrinke resolutio
 WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1600 / WIN_FACTOR), int(1000 / WIN_FACTOR), int(3 / WIN_FACTOR)
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
 
-ORIGIN_FRAME_OFFSET_X, ORIGIN_FRAME_OFFSET_Y = 0, 70
+ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 70
 SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 520
 STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, 965
 
-ORIGIN_FRAME_END_X, ORIGIN_FRAME_END_Y = ORIGIN_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORIGIN_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
+ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 
 episodes, f = None, None
 mouse_point = []
 selectable_item_exp = ''
+raw_data_ori, raw_data_seg = [], []
 
 
 # Json load and write functions
@@ -65,35 +68,34 @@ def load_split_callback(sender, app_data):
     dpg.configure_item('scene', items=scene_list) 
 
 
-# load img and expression annotation functions
-def load_imgs_callback(sender, app_data, user_data):
-    if_seg = user_data
-    width, height, data, exp = load_imgs(user_data)
-    if not if_seg:
-        dpg.set_value('origin_frame', data)
-    else:
-        dpg.set_value('seg_frame', data)
-    return width, height, data, exp
-def load_imgs(user_data):
-    # picutre loading and registry
+# load img and expression annotation function
+def load_imgexps():
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
-    if_seg = user_data
     scene = dpg.get_value('scene')
     split = dpg.get_value('split')
-    origin_img_dir = Path('.').resolve() / 'data' / split / 'origin'
+    ori_img_dir = Path('.').resolve() / 'data' / split / 'origin'
     seg_img_dir = Path('.').resolve() / 'data' / split / 'seg'
     trajectory_id = episodes[episode_idx-1]['trajectory_id']
     episode_id = episodes[episode_idx-1]['episode_id']
     # load pictures
-    if not if_seg:
-        width, height, _, data = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(origin_img_dir),\
-            int(scene), trajectory_id, episode_id, frame_idx-1))
-    else:
-        width, height, _, data = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
-            int(scene), trajectory_id, episode_id, frame_idx-1))
-    with (origin_img_dir / '{:02d}_{}_{}'.format(int(scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
+    global raw_data_ori, raw_data_seg
+    # width, height, _, data_ori = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
+    #     int(scene), trajectory_id, episode_id, frame_idx-1))
+    ori_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
+        int(scene), trajectory_id, episode_id, frame_idx-1)
+    seg_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
+        int(scene), trajectory_id, episode_id, frame_idx-1)
+    raw_data_ori = cv2.cvtColor(cv2.imread(ori_img_name), cv2.COLOR_BGR2RGB)
+    dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
+    # _, _, _, data_seg = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
+    #     int(scene), trajectory_id, episode_id, frame_idx-1))
+    raw_data_seg = cv2.cvtColor(cv2.imread(seg_img_name), cv2.COLOR_BGR2RGB)
+    print_img_data(raw_data_seg)
+    dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
+    # load exps
+    with (ori_img_dir / '{:02d}_{}_{}'.format(int(scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
         exp = json.loads(f.read())
-    return  width, height, data, exp
+    return  raw_data_ori, raw_data_seg, exp
 
 
 # episode and frame idx editting callback function
@@ -128,8 +130,7 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('episode_id', 'Episode_id: '+episodes[episode_idx-1]['episode_id'])
         dpg.set_value('trajectory_id', 'Trajectory_id: '+episodes[episode_idx-1]['trajectory_id'])
         dpg.configure_item('drag_int_episodes', max_value=len(episodes))
-        _, _, _, exp = load_imgs_callback(sender, app_data, True)
-        load_imgs_callback(sender, app_data, False)
+        _, _, exp = load_imgexps()
         dpg.set_value('exp', '导航指令：' + exp['instruction'])
         dpg.set_value('exp_translated', '导航指令翻译：' + exp['instruction_translated'])
         # exps = []
@@ -143,7 +144,6 @@ def idx_callback(sender, app_data, user_data):
             for e in episodes[episode_idx-1]['expressions']:
                 with dpg.group(horizontal=True, tag=e):
                     dpg.add_input_text(default_value=e, tag=e+'input', user_data=[e, 'upd'], callback=exps_callback, on_enter=True)
-                    # dpg.add_button(label='Delete', user_data=e, callback=lambda s, a, u: dpg.delete_item(u))
                     dpg.add_button(label='Delete', tag=e+'delbtn', user_data=[e, 'del'], callback=exps_callback)
         items = []
         dpg.delete_item('exps_sub')
@@ -158,8 +158,7 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('len_episodes', '/' + str(len(episodes)))
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
         dpg.configure_item('drag_int_frames', max_value=episodes[episode_idx-1]['len_frames'])
-        load_imgs_callback(sender, app_data, True)
-        load_imgs_callback(sender, app_data, False)
+        load_imgexps()
     else:
         raise ValueError('Not supported object:{} for {}'.format(obj, mode))
 
@@ -173,7 +172,6 @@ def exps_callback(sender, app_data, user_data):
         episodes[episode_idx-1]['expressions'].append(exp)
         with dpg.group(horizontal=True, tag=exp, parent='pop_up_exps_sub'):
             dpg.add_input_text(default_value=exp, tag=exp+'input', user_data=[exp, 'upd'], callback=exps_callback, on_enter=True)
-            # dpg.add_button(label='Delete', user_data=e, callback=lambda s, a, u: dpg.delete_item(u))
             dpg.add_button(label='Delete', tag=exp+'delbtn', user_data=[exp, 'del', exp], callback=exps_callback)
         # screen repeat exp
         sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
@@ -183,7 +181,6 @@ def exps_callback(sender, app_data, user_data):
     elif mode == 'upd':
         idx = episodes[episode_idx-1]['expressions'].index(exp)
         episodes[episode_idx-1]['expressions'][idx] = callback_val
-        # episodes[episode_idx-1]['expressions'].remove(exp)
         dpg.configure_item(exp+'input', user_data=[callback_val, 'upd'])
         dpg.configure_item(exp+'delbtn', user_data=[callback_val, 'del', exp])
         sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
@@ -246,18 +243,54 @@ def mouse_event_handler(sender, data):
         dpg.set_value('mouse_move', f"Mouse pos: {data}")
         mouse_point = data
 def mask_operation(mode):
+    episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
     if mode == 'add':
         if boundary(mouse_point, SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y, SEG_FRAME_END_X, SEG_FRAME_END_Y):
             print('Clicked at', mouse_point)
             i, j = restore(mouse_point, 'seg')
             print('Frame pixel i:{} j:{}'.format(i, j))
+            if 'frames' not in episodes[episode_idx-1]:
+                episodes[episode_idx-1]['frames'] = init_frames(episodes[episode_idx-1]['len_frames'])
+            # print(episodes[episode_idx-1]['frames'])
+            filtered_mask = get_mask_by_point(raw_data_seg, i, j)
+            dpg.set_value('ori_frame', set_mask_for_ori(raw_data_ori, filtered_mask).astype(np.float32) / 255)
+            episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
     elif mode == 'del':
-        if boundary(mouse_point, ORIGIN_FRAME_OFFSET_X, ORIGIN_FRAME_OFFSET_Y, ORIGIN_FRAME_END_X, ORIGIN_FRAME_END_Y):
+        if boundary(mouse_point, ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y, ORI_FRAME_END_X, ORI_FRAME_END_Y):
             print('DoubleClicked at', mouse_point)
-            i, j = restore(mouse_point, 'origin')
+            i, j = restore(mouse_point, 'ori')
             print('Frame pixel i:{} j:{}'.format(i, j))
     else:   
         pass
+def get_mask_by_point(data, i, j):
+    def dfs(data, fill, point, i, j):
+        # leaf
+        if not np.array_equal(data[i, j, :], point):
+            return
+        fill[i, j, :] = point
+        visited[i][j] = True
+        # adajecent nodes traverse
+        for k in range(4):
+            i, j = i + di[k], j + dj[k]
+            if boundary((i, j), 0, 0, 144, 256) and not visited[i][j]:
+                dfs(data, fill, point, i, j)
+    fill = np.zeros_like(data)
+    point = data[i, j, :]
+    di, dj = [1, 0, -1, 0], [0, 1, 0, -1]  # adajecent nodes: down, right, up, left
+    visited = []
+    for a in range(FRAME_HEIGHT):
+        visited.append([])
+        for _ in range(FRAME_WIDTH):
+            visited[a].append(False) 
+    dfs(data, fill, point, i, j)
+    print(fill)
+    return fill
+def set_mask_for_ori(data, mask):
+    for i in range(FRAME_HEIGHT):
+        for j in range(FRAME_HEIGHT):
+            if not np.array_equal(mask[i, j, :], np.zeros(3)):
+                data[i, j, :] = mask[i, j, :]
+    return data
 
 
 # expression selection function
@@ -278,9 +311,18 @@ def boundary(p, ltx, lty, rbx, rby):
     return False
 def restore(p, mode):
     if mode == 'seg':
-        return [(p[0] - SEG_FRAME_OFFSET_X) // FRAME_FACTOR, (p[1] - SEG_FRAME_OFFSET_Y) // FRAME_FACTOR]
-    else: # origin
-        return [(p[0] - ORIGIN_FRAME_OFFSET_X) // FRAME_FACTOR, (p[1] - ORIGIN_FRAME_OFFSET_Y) // FRAME_FACTOR]
+        return [int((p[0] - SEG_FRAME_OFFSET_X) // FRAME_FACTOR), int((p[1] - SEG_FRAME_OFFSET_Y) // FRAME_FACTOR)]
+    else: # ori
+        return [int((p[0] - ORI_FRAME_OFFSET_X) // FRAME_FACTOR), int((p[1] - ORI_FRAME_OFFSET_Y) // FRAME_FACTOR)]
+def print_img_data(data):
+    print(data.dtype)
+    print(data.shape)
+    # print(data)
+def init_frames(length):
+    frames = []
+    for _ in range(length):
+        frames.append(dict())
+    return frames
 
 
 # main UI definition function
@@ -381,31 +423,28 @@ def main(args):
                  user_data=['plus', 'frames'])
 
 
-        # picutre loading and registry
-        width, height, data, exp = load_imgs(False)
-        width_seg, height_seg, data_seg, _ = load_imgs(True)
-        # exps = []
-        if 'expressions' not in episodes[DEFAULT_EPISODE_IDX-1]:
-            episodes[DEFAULT_EPISODE_IDX-1]['expressions'] = []
-        for value in exp['expressions'].values():
-            # exps.append(value['exp']) 
-            episodes[DEFAULT_EPISODE_IDX-1]['expressions'].append(value)
-        # picture registry
+        # Origin and segmentation frames show and operation space
+        texture_data = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), np.float32)
         with dpg.texture_registry(show=False):
-            dpg.add_dynamic_texture(width, height, data, tag="origin_frame")
-            dpg.add_dynamic_texture(width_seg, height_seg, data_seg, tag="seg_frame")
+            dpg.add_raw_texture(FRAME_WIDTH, FRAME_HEIGHT, texture_data, format=dpg.mvFormat_Float_rgb, tag="ori_frame")
+            dpg.add_raw_texture(FRAME_WIDTH, FRAME_HEIGHT, texture_data, format=dpg.mvFormat_Float_rgb, tag="seg_frame")
+        _, _, exp = load_imgexps()
 
 
-        # Main operating Space
+        # Instruction, translated, expressions show and edit space
         #FIXME
         with dpg.group(horizontal=True):
             # space to show origin and segmentation frames
             with dpg.group():
-                dpg.add_image("origin_frame", width=width*FRAME_FACTOR, height=height*FRAME_FACTOR, pos=[ORIGIN_FRAME_OFFSET_X, ORIGIN_FRAME_OFFSET_Y])
-                dpg.add_image("seg_frame", width=width*FRAME_FACTOR, height=height*FRAME_FACTOR, pos=[SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y])
+                dpg.add_image("ori_frame", width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR, pos=[ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y])
+                dpg.add_image("seg_frame", width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR, pos=[SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y])
             # space to show instructions, referring expressions highlighted navigation instructions,
             # tranlated navigation instructions and operating logs
             with dpg.group():
+                if 'expressions' not in episodes[DEFAULT_EPISODE_IDX-1]:
+                    episodes[DEFAULT_EPISODE_IDX-1]['expressions'] = []
+                    for value in exp['expressions'].values():
+                        episodes[DEFAULT_EPISODE_IDX-1]['expressions'].append(value)
                 # Insturctions
                 instructions = '使用说明：已自动解析表达式，如有部分错误可通过弹窗编辑。可通过方向键或wasd键同时调整视频的episode和frame序号，在对应帧单击一个高亮的表达式，使用单击选定一个或多个segmentation的mask，选定后会自动保存，并在原图显示已选定的mask。'
                 dpg.add_text(default_value=instructions, wrap=0)
