@@ -183,7 +183,7 @@ class Episodes(object):
                 for i in res:
                     RE += i + ' '
                 # RE.replace(',', '')
-                RES.add(RE[:-1])
+                RES.append(RE[:-1])
                 # print(RE[:-1])
                 return
             for i in range(len(tree)):
@@ -195,23 +195,18 @@ class Episodes(object):
                 return
             for i in range(len(tree)):
                 dfs_print_leaf(tree[i], res)
+                
 
 
         instruction = episode['instruction']['instruction_text']
         print('Original Instruction:', instruction)
         nlp = StanfordCoreNLP(STANFORDCORENLP_PATH)
         nsents = nltk.sent_tokenize(instruction) 
-        RES = set()
+        RES = []
         try: 
             for i, sent in enumerate(nsents):
                 print('Sentence_{}: {}'.format(i+1, sent))
                 if props is None:
-                    # print('Tokenize:', nlp.word_tokenize(instruction), end='\n\n')
-                    # print('Part of Speech:', nlp.pos_tag(instruction), end='\n\n')
-                    # print('Constituency Parsing:', nlp.parse(instruction), end='\n\n')
-                    # print('Dependency Parsing:', nlp.dependency_parse(instruction), end='\n\n')
-                    # print('Sentence Splitting', nlp.ssplit(instruction), end='\n\n')
-                    # print('Named Entities:', nlp.ner(instruction), end='\n\n')
                     res = nlp.parse(sent)
                 else:
                     res = nlp.annotate(sent, properties=props)
@@ -220,6 +215,7 @@ class Episodes(object):
                 dfs_traverse(tree, RES)
 
             print()
+            RES = sorted(set(RES), key=RES.index)
             # for i in RES:
             #     if len(re.split('and', i)) > 1:
             #         RES.remove(i)
@@ -235,8 +231,37 @@ class Episodes(object):
 
         return RES
 
+    
+    def translate(self, instruction):
+        from hashlib import md5
+        import requests
+        # translate navigation instructions by Baidu Translate API
+        query = instruction
+        from_lang = 'en'
+        to_lang = 'zh'
+        appid = '20210825000926998'
+        appkey = 'N54Ev0fTKeyiZ5Tn4tX3'
+        endpoint = 'http://api.fanyi.baidu.com'
+        path = '/api/trans/vip/translate'
+        url = endpoint + path
+        salt = random.randint(32768, 65536)
+        def make_md5(s, encoding='utf-8'):
+            return md5(s.encode(encoding)).hexdigest()
+        sign = make_md5(appid + query + str(salt) + appkey)
 
-    def fly_by_trajectory(self, split, episode, save_path, filt):
+        # Build request
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        payload = {'appid': appid, 'q': query, 'from': from_lang, \
+            'to': to_lang, 'salt': salt, 'sign': sign}
+
+        # Send request
+        r = requests.post(url, params=payload, headers=headers)
+        r = r.json()['trans_result'][0]['dst']
+        return r
+
+
+
+    def fly_by_trajectory(self, split, episode, save_path, filt, only_json):
         # split_dir = Path(save_path) / split / 'JPEGImages'
         split_dir = Path(save_path) / split
         epi_id = episode['episode_id']
@@ -274,31 +299,39 @@ class Episodes(object):
 
             frames = []
             RES = self.parse_re(episode)
+
             for i, pos in enumerate(npath):
                 frame_origin_name = save_origin_dir / "{:03d}.jpg".format(i)
                 frame_seg_name = save_seg_dir / "{:03d}.jpg".format(i)
 
-                self.client.simSetVehiclePose(pos, True)
-                frame = self.get_frame()
+                if not only_json:
+                    self.client.simSetVehiclePose(pos, True)
+                    frame = self.get_frame()
+                    if save_path:
+                        airsim.write_png(os.path.normpath(str(frame_origin_name)), frame[0]) 
+                        airsim.write_png(os.path.normpath(str(frame_seg_name)), frame[1]) 
                 frames.append(frame_origin_name.name[:-4])
-                if save_path:
-                    airsim.write_png(os.path.normpath(str(frame_origin_name)), frame[0]) 
-                    airsim.write_png(os.path.normpath(str(frame_seg_name)), frame[1]) 
 
-            print('Over!!!')
+            print('Over!!')
             metas= dict()
             instruction = episode['instruction']['instruction_text']
+            instruction_translated = self.translate(instruction)
+
             res = dict()
             for i, RE in enumerate(RES):
-                res[str(i)] = dict()
-                res[str(i)]['exp'] = RE
+                res[str(i)] = RE
+            metas['episode_id'] = epi_id
+            metas['trajectory_id'] = tra_id
+            metas['scene_id'] = sce_id
             metas['instruction'] = instruction
+            metas['instruction_translated'] = instruction_translated
             metas['expressions'] = res
             metas['frames'] = frames
+
             with (Path(save_origin_dir) / 'expressions.json').open(mode='w+') as f:
-                f.write(json.dumps(metas))
+                json.dump(metas, f, indent=4)
             with (Path(save_seg_dir) / 'expressions.json').open(mode='w+') as f:
-                f.write(json.dumps(metas))
+                json.dump(metas, f, indent=4)
             return frames, RES, save_origin_dir.name
         else:
             return None, None, None
@@ -309,18 +342,19 @@ class Episodes(object):
         # save filtered pictures into fixed folder for subsequent REC annotations
 
 
-    def run(self, split, oneturn, save_path, filt): # for local main run, __next__ for global iteration
+    def run(self, split, oneturn, save_path, filt, only_json): # for local main run, __next__ for global iteration
 
         length = len(self.episodes)
         metas = dict()
         metas['videos'] = dict()
         if oneturn:
             episode = self.episodes[random.randint(0, length-1)]
-            self.fly_by_trajectory(self.split, episode, save_path=save_path, filt=filt)
+            self.fly_by_trajectory(self.split, episode, save_path=save_path, filt=filt, only_json=only_json)
         else:
             for episode in self.episodes:
-                FRAMES, RES, vid_name = self.fly_by_trajectory(self.split, episode, save_path=save_path, filt=filt)
+                FRAMES, RES, vid_name = self.fly_by_trajectory(self.split, episode, save_path=save_path, filt=filt, only_json=only_json)
                 instruction = episode['instruction']['instruction_text']
+                instruction_translated = self.translate(instruction)
                 if FRAMES is None:
                     continue
                 res = dict()
@@ -329,12 +363,16 @@ class Episodes(object):
                     res[str(i)]['exp'] = RE
                 metas['videos'][vid_name] = dict()
                 metas['videos'][vid_name]['instruction'] = instruction
+                metas['videos'][vid_name]['instruction_translated'] = instruction_translated
                 metas['videos'][vid_name]['expressions'] = res
                 metas['videos'][vid_name]['frames'] = FRAMES
+                metas['videos'][vid_name]['episode_id'] = episode['episode_id']
+                metas['videos'][vid_name]['trajectory_id'] = episode['trajectory_id']
+                metas['videos'][vid_name]['scene_id'] = str(episode['scene'])
 
-        # if save_path:
-        #    with (Path(save_path) / split / 'expressions.json').open(mode='a+') as f:
-        #        f.write(json.dumps(metas))
+        if save_path:
+           with (Path(save_path) / split / 'meta_expressions.json').open(mode='w+') as f:
+                json.dump(metas, f, indent=4)
 
 
 if __name__ == '__main__':
@@ -351,6 +389,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     episodes = Episodes(args.split, args.scene, args.json)
-    # episodes.run(args.split, args.oneturn, args.save_path, args.filt)
+    episodes.run(args.split, args.oneturn, args.save_path, args.filt, args.json)
     # episode = episodes.get_rand_episode(random.randint(0, len(episodes)))
-    episode = episodes.get_rand_episode(8)
+    # episode = episodes.get_rand_episode(8)
