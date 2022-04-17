@@ -2,11 +2,14 @@
 
 # internal packages imported
 import dearpygui.dearpygui as dpg
+import os
 import argparse
 from pathlib import Path
 import json
 import cv2
 import numpy as np
+import copy
+from json import JSONEncoder
 
 # project packages imported
 from utils.episodes import Episodes
@@ -29,7 +32,11 @@ STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, 965
 ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 
-episodes, f = None, None
+MASK_BY_COLOR = False
+USE_THRESHOLD = False
+SEG_SIM_THRESHOLD = 4
+
+episodes= None
 mouse_point = []
 selectable_item_exp = ''
 raw_data_ori, raw_data_seg = [], []
@@ -37,9 +44,11 @@ raw_data_ori, raw_data_seg = [], []
 
 # Json load and write functions
 def write_json():
-    dic = dict()
-    dic['epoisodes'] = episodes
-    f.write(json.dumps(dic))
+    split = dpg.get_value('split')
+    scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
+    with open('annotations/{}/{}_seg.json'.format(split, scene), mode='w+') as f:
+        json.dump({'episodes': episodes}, f, indent=4, cls=NumpyArrayEncoder)
+        print('Write to json file!')
 def load_json_callback(sender, app_data, user_data):
     # save all the staged episodes operations
     write_json()
@@ -50,11 +59,23 @@ def load_json():
     split = dpg.get_value('split')
     scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
     global episodes, f
-    episodes = Episodes(split, scene=scene, only_json=True).get_episodes()
     # for epi in episodes:
     #     epi['expressions'] = []  # list of referring expressions
     #     epi['frames'] = []   # list of dict(key: expression, value: corresponding mask ndarray)
-    f = open('annotations/{}_seg.json'.format(split), mode='w+')
+    if os.path.exists('annotations/{}/{}_seg.json'.format(split, scene)):
+        with open('annotations/{}/{}_seg.json'.format(split, scene), mode='r') as f:
+            content = f.read()
+            if content:
+                episodes = json.loads(content)['episodes']
+            else:   # not file.close so no content in the json file
+                episodes = Episodes(split, scene=scene, only_json=True).get_episodes()
+
+    else:
+        episodes = Episodes(split, scene=scene, only_json=True).get_episodes()
+        with open('annotations/{}/{}_seg.json'.format(split, scene), mode='w+') as f:
+            json.dump({'episodes': episodes}, f, indent=4)
+
+        
 def load_split_callback(sender, app_data):
     split_scene_idx_dict = {}
     split_scene_idx_dict['train'] = [1, 2, 3, 4, 5, 8 ,10 , 11, 12, 14, 16, 17, 20, 22, 23, 25, 26]
@@ -90,11 +111,15 @@ def load_imgexps():
     # _, _, _, data_seg = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
     #     int(scene), trajectory_id, episode_id, frame_idx-1))
     raw_data_seg = cv2.cvtColor(cv2.imread(seg_img_name), cv2.COLOR_BGR2RGB)
-    print_img_data(raw_data_seg)
+    # print_img_data(raw_data_seg)
     dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
     # load exps
     with (ori_img_dir / '{:02d}_{}_{}'.format(int(scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
         exp = json.loads(f.read())
+    # multidim python list -> nparray for show, add and delete
+    if 'frames' in episodes[episode_idx-1]:
+        for dic_key in episodes[episode_idx-1]['frames'][frame_idx-1]:
+            episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
     return  raw_data_ori, raw_data_seg, exp
 
 
@@ -151,7 +176,7 @@ def idx_callback(sender, app_data, user_data):
             for e in episodes[episode_idx-1]['expressions']:
                 items.append(dpg.add_selectable(label=e))
         for item in items:
-            dpg.configure_item(item, callback=_selection, user_data=items)
+            dpg.configure_item(item, callback=exp_select_callback, user_data=items)
     elif obj == 'frames':
         frame_idx = op(frame_idx, mode)
         dpg.set_value('frame_idx', frame_idx)
@@ -191,7 +216,7 @@ def exps_callback(sender, app_data, user_data):
             for e in episodes[episode_idx-1]['expressions']:
                 items.append(dpg.add_selectable(label=e))
         for item in items:
-            dpg.configure_item(item, callback=_selection, user_data=items)
+            dpg.configure_item(item, callback=exp_select_callback, user_data=items)
         dpg.configure_item('pop_edit_panel', show=False)
         write_json()
 
@@ -199,7 +224,6 @@ def exps_callback(sender, app_data, user_data):
 # key bind for episode and frame editing functions
 def keyboard_event_handler(sender, app_data, user_data):
     # h,l for episode minus and plus, j,k for frame plus and minus, like vim motion bind keys
-    episodes = user_data
     if app_data in [ 72, 87, 265 ]: # press h or w or up key
         idx_callback(sender, app_data, ['minus', 'episodes'])
     elif app_data in [ 74, 68, 262 ]: # press j or d or right key
@@ -208,21 +232,26 @@ def keyboard_event_handler(sender, app_data, user_data):
         idx_callback(sender, app_data, ['minus', 'frames'])
     elif app_data in [ 76, 83, 264 ]: # press l or s or down key
         idx_callback(sender, app_data, ['plus', 'episodes'])
+    elif app_data == 256: # press ESC
+        load_imgexps()
+        dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
     else:
-        print('Other key pressed!')
+        print('Other key_id: {} pressed!'.format(app_data))
 def toggle_bind_key_callback():
-    ls = ['h', 'j', 'k', 'l', 'w', 'a', 's', 'd', 'up', 'right', 'left', 'down']
+    ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
     if dpg.is_key_down(dpg.mvKey_E):
         # print('Press Ctrl E!', dpg.get_item_callback('bind_key_h'))
         for i in ls:
             dpg.configure_item('bind_key_' + i, callback=keyboard_event_handler)
-    if dpg.is_key_down(dpg.mvKey_R):
-        # print('Press Ctrl R!', dpg.get_item_callback('bind_key_h'))
+    elif dpg.is_key_down(dpg.mvKey_D):
+        # print('Press Ctrl D!', dpg.get_item_callback('bind_key_h'))
         for i in ls:
             dpg.configure_item('bind_key_' + i, callback=None)
+    elif dpg.is_key_down(dpg.mvKey_S):
+        write_json()
     dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 def toggle_bind_key():
-    ls = ['h', 'j', 'k', 'l', 'w', 'a', 's', 'd', 'up', 'right', 'left', 'down']
+    ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
     for i in ls:
         if dpg.get_item_callback('bind_key_' + i) is None:
             dpg.configure_item('bind_key_' + i, callback=keyboard_event_handler)
@@ -231,7 +260,16 @@ def toggle_bind_key():
     dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 
 
-# mouse action and mask operation function
+# mouse action and mask operation function and mask show callback
+def mask_show_callback(sender, app_data, user_data):
+    episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
+    load_imgexps()
+    if 'frames' in episodes[episode_idx-1]:
+        frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
+        if selectable_item_exp in frame_mask_dict:
+            mask_nparray = frame_mask_dict[selectable_item_exp]
+            set_mask(raw_data_ori, mask_nparray)
+            dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
 def mouse_event_handler(sender, data):
     global mouse_point
     type = dpg.get_item_info(sender)["type"]
@@ -246,55 +284,77 @@ def mask_operation(mode):
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
     if mode == 'add':
         if boundary(mouse_point, SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y, SEG_FRAME_END_X, SEG_FRAME_END_Y):
-            print('Clicked at', mouse_point)
             i, j = restore(mouse_point, 'seg')
-            print('Frame pixel i:{} j:{}'.format(i, j))
+            print('Clicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
             if 'frames' not in episodes[episode_idx-1]:
                 episodes[episode_idx-1]['frames'] = init_frames(episodes[episode_idx-1]['len_frames'])
-            # print(episodes[episode_idx-1]['frames'])
-            filtered_mask = get_mask_by_point(raw_data_seg, i, j)
-            dpg.set_value('ori_frame', set_mask_for_ori(raw_data_ori, filtered_mask).astype(np.float32) / 255)
-            episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
+            if MASK_BY_COLOR:
+                filtered_mask = get_mask_by_color(raw_data_seg, i, j)
+            else:
+                filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
+            # dpg.set_value('ori_frame', set_mask_for_ori(raw_data_ori, filtered_mask).astype(np.float32) / 255)
+            if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
+            else:
+                episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
+            mask_show_callback(None, None, None)
     elif mode == 'del':
         if boundary(mouse_point, ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y, ORI_FRAME_END_X, ORI_FRAME_END_Y):
-            print('DoubleClicked at', mouse_point)
             i, j = restore(mouse_point, 'ori')
-            print('Frame pixel i:{} j:{}'.format(i, j))
+            print('DoubleClicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
+            if MASK_BY_COLOR:
+                filtered_mask = get_mask_by_color(raw_data_seg, i, j)
+            else:
+                filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
+            set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask, mode=='unfill')
+            mask_show_callback(None, None, None)
     else:   
         pass
-def get_mask_by_point(data, i, j):
-    def dfs(data, fill, point, i, j):
-        # leaf
-        if not np.array_equal(data[i, j, :], point):
-            return
-        fill[i, j, :] = point
-        visited[i][j] = True
-        # adajecent nodes traverse
-        for k in range(4):
-            i, j = i + di[k], j + dj[k]
-            if boundary((i, j), 0, 0, 144, 256) and not visited[i][j]:
-                dfs(data, fill, point, i, j)
+def get_mask_by_color(data, i, j):
+    point = data[i, j]
     fill = np.zeros_like(data)
-    point = data[i, j, :]
-    di, dj = [1, 0, -1, 0], [0, 1, 0, -1]  # adajecent nodes: down, right, up, left
-    visited = []
     for a in range(FRAME_HEIGHT):
-        visited.append([])
-        for _ in range(FRAME_WIDTH):
-            visited[a].append(False) 
-    dfs(data, fill, point, i, j)
-    print(fill)
+        for b in range(FRAME_WIDTH):
+            if threshold(data[a, b], point, SEG_SIM_THRESHOLD):
+                fill[a, b] = point
     return fill
-def set_mask_for_ori(data, mask):
+def get_mask_by_graph(data, i, j):
+    def bfs(data, i, j):
+        import queue
+        fill = np.zeros_like(data)
+        point = data[i, j]
+        di, dj = [1, 0, -1, 0], [0, 1, 0, -1]  # adajecent nodes: down, right, up, left
+        q = queue.Queue()
+        q.put((i, j))
+        fill[i, j] = point
+        while not q.empty():
+            i, j = q.get()
+            for k in range(len(di)):
+                ni, nj = i + di[k], j + dj[k]
+                if boundary((ni, nj), 0, 0, FRAME_HEIGHT, FRAME_WIDTH):
+                    if USE_THRESHOLD:
+                        condition = threshold(data[ni, nj], data[i, j], SEG_SIM_THRESHOLD)
+                    else:
+                        condition = np.array_equal(data[ni, nj], data[i, j])
+                    if condition:
+                        if np.array_equal(fill[ni, nj], np.zeros(3)):
+                            fill[ni, nj] = point
+                            q.put((ni, nj))
+        return fill
+    fill = bfs(data, i, j)
+    return fill
+def set_mask(data, mask, mode='fill'):
     for i in range(FRAME_HEIGHT):
-        for j in range(FRAME_HEIGHT):
-            if not np.array_equal(mask[i, j, :], np.zeros(3)):
-                data[i, j, :] = mask[i, j, :]
-    return data
+        for j in range(FRAME_WIDTH):
+            if not np.array_equal(mask[i, j], np.zeros(3)):
+                if mode == 'fill':
+                    data[i, j] = mask[i, j]
+                else:  # just cause unfill is always used for mask
+                    data[i, j] = np.zeros(3)
 
 
 # expression selection function
-def _selection(sender, app_data, user_data):
+def exp_select_callback(sender, app_data, user_data):
     global selectable_item_exp
     for item in user_data:
         if item != sender:
@@ -302,6 +362,12 @@ def _selection(sender, app_data, user_data):
         else:
             selectable_item_exp = dpg.get_item_configuration(sender)['label']
             print('Now Selected exp are: ', selectable_item_exp)
+            mask_show_callback(sender, app_data, user_data)
+
+
+# popup window for editting expressions callback function
+def popup_callback(sender, app_data, user_data):
+    print('popup callback')
 
 
 # util functions
@@ -309,11 +375,17 @@ def boundary(p, ltx, lty, rbx, rby):
     if (p[0] >= ltx and p[0] < rbx) and (p[1] >= lty and p[1] < rby):
         return True
     return False
+def threshold(src, dst, th):
+    # print(src[0]-dst[0])
+    for i in range(len(src)):
+        if abs(src[i]-dst[i]) > th:
+            return False
+    return True
 def restore(p, mode):
     if mode == 'seg':
-        return [int((p[0] - SEG_FRAME_OFFSET_X) // FRAME_FACTOR), int((p[1] - SEG_FRAME_OFFSET_Y) // FRAME_FACTOR)]
+        return [int((p[1] - SEG_FRAME_OFFSET_Y) // FRAME_FACTOR), int((p[0] - SEG_FRAME_OFFSET_X) // FRAME_FACTOR)]
     else: # ori
-        return [int((p[0] - ORI_FRAME_OFFSET_X) // FRAME_FACTOR), int((p[1] - ORI_FRAME_OFFSET_Y) // FRAME_FACTOR)]
+        return [int((p[1] - ORI_FRAME_OFFSET_Y) // FRAME_FACTOR), int((p[0] - ORI_FRAME_OFFSET_X) // FRAME_FACTOR)]
 def print_img_data(data):
     print(data.dtype)
     print(data.shape)
@@ -323,6 +395,11 @@ def init_frames(length):
     for _ in range(length):
         frames.append(dict())
     return frames
+class NumpyArrayEncoder(JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return JSONEncoder.default(self, obj)
 
 
 # main UI definition function
@@ -349,14 +426,15 @@ def main(args):
         dpg.add_key_press_handler(dpg.mvKey_J, callback=keyboard_event_handler, tag='bind_key_j')
         dpg.add_key_press_handler(dpg.mvKey_K, callback=keyboard_event_handler, tag='bind_key_k')
         dpg.add_key_press_handler(dpg.mvKey_L, callback=keyboard_event_handler, tag='bind_key_l')
-        dpg.add_key_press_handler(dpg.mvKey_W, callback=keyboard_event_handler, tag='bind_key_w')
-        dpg.add_key_press_handler(dpg.mvKey_D, callback=keyboard_event_handler, tag='bind_key_d')
-        dpg.add_key_press_handler(dpg.mvKey_A, callback=keyboard_event_handler, tag='bind_key_a')
-        dpg.add_key_press_handler(dpg.mvKey_S, callback=keyboard_event_handler, tag='bind_key_s')
+        # dpg.add_key_press_handler(dpg.mvKey_W, callback=keyboard_event_handler, tag='bind_key_w')
+        # dpg.add_key_press_handler(dpg.mvKey_D, callback=keyboard_event_handler, tag='bind_key_d')
+        # dpg.add_key_press_handler(dpg.mvKey_A, callback=keyboard_event_handler, tag='bind_key_a')
+        # dpg.add_key_press_handler(dpg.mvKey_S, callback=keyboard_event_handler, tag='bind_key_s')
         dpg.add_key_press_handler(dpg.mvKey_Up, callback=keyboard_event_handler, tag='bind_key_up')
         dpg.add_key_press_handler(dpg.mvKey_Right, callback=keyboard_event_handler, tag='bind_key_right')
         dpg.add_key_press_handler(dpg.mvKey_Left, callback=keyboard_event_handler, tag='bind_key_left')
         dpg.add_key_press_handler(dpg.mvKey_Down, callback=keyboard_event_handler, tag='bind_key_down')
+        dpg.add_key_press_handler(dpg.mvKey_Escape, callback=keyboard_event_handler, tag='bind_key_esc')
         dpg.add_mouse_click_handler(tag='mouse_clicked_handler', callback=mouse_event_handler)
         dpg.add_mouse_double_click_handler(tag='mouse_doubelclicked_handler', callback=mouse_event_handler)
         dpg.add_mouse_move_handler(tag='mouse_move_handler', callback=mouse_event_handler)
@@ -446,12 +524,30 @@ def main(args):
                     for value in exp['expressions'].values():
                         episodes[DEFAULT_EPISODE_IDX-1]['expressions'].append(value)
                 # Insturctions
-                instructions = '使用说明：已自动解析表达式，如有部分错误可通过弹窗编辑。可通过方向键或wasd键同时调整视频的episode和frame序号，在对应帧单击一个高亮的表达式，使用单击选定一个或多个segmentation的mask，选定后会自动保存，并在原图显示已选定的mask。'
-                dpg.add_text(default_value=instructions, wrap=0)
+                # instructions = '使用说明：已自动解析表达式，错误部分可通过弹窗编辑。可通过方向键或hjkl键同时调整视频的episode和frame序号，在对应帧选择一个表达式后单击一个或多个segmentation的mask的任意一点，会在原图显示已选定的mask，原图双击可删除。'
+                # dpg.add_text(default_value=instructions, wrap=0)
+                with dpg.tree_node(tag='instruction', label='使用说明'):
+                    with dpg.tree_node(label='准备事项'):
+                        dpg.add_text("1. 运行scripts/stscene.sh打开场景", wrap=0)
+                        dpg.add_text("2. 运行scripts/save_imgs.sh(需修改对应split、scene和保存路径)保存需要的图片和表达式信息", wrap=0)
+                    with dpg.tree_node(label='使用事项'):
+                        dpg.add_text("通过工具栏选定split和scene(第2步一致)后Load图片和表达式信息", wrap=0, bullet=True)
+                        dpg.add_text("通过方向键或工具栏中拖动栏控制episode和frame序号来调整左侧原图和segmentation图", wrap=0, bullet=True)
+                        dpg.add_text("在左下方segmentation图单击任一mask任一点对当前帧当前表达式添加mask并在原图显示", wrap=0, bullet=True)
+                        dpg.add_text("在左上方原图双击任一mask任一点来删除当前选定表达式的mask", wrap=0, bullet=True)
+                        dpg.add_text("可通过点击任一表达式来在原图中查看当前帧该表达式已添加的mask, ESC键清除原图mask", wrap=0, bullet=True)
+                        dpg.add_text("可通过表达式选择列表上方的编辑按钮对不正确表达式进行修改和删除", wrap=0, bullet=True)
+                        dpg.add_text("下方状态栏显示当前界面所在的episode_id、trajectory_id和scene_id等状态信息", wrap=0, bullet=True)
+                        dpg.add_text("可通过Ctrl+E打开快捷键模式，Ctrl+D关闭快捷键模式，可在下方状态栏看到当前快捷键模式状态", wrap=0, bullet=True)
+                    with dpg.tree_node(label='注意事项'):
+                        dpg.add_text("关闭软件前按Ctrl+S进行保存！", bullet=True)
+                        dpg.add_text("在弹出窗口编辑或删除完表达式后，需通过保存按钮关闭！", bullet=True)
+                        dpg.add_text("在弹出窗口编辑表达式完成时需要按Enter键进行确认！", bullet=True)
                 # Navigation instructions, parsed referring expression highlighted and translated results
                 dpg.add_text('导航指令：' + exp['instruction'], tag='exp', wrap=0)
                 dpg.add_text('导航指令翻译：' + exp['instruction_translated'], tag='exp_translated', wrap=0)
-                dpg.add_button(label='已解析表达式(存在冗余或不准确, 单击此处进行编辑)：', tag='pop_up_edit_btn')
+                dpg.add_button(label='已解析表达式(存在冗余或不准确, 单击此处进行编辑)：', tag='pop_up_edit_btn', callback=popup_callback)
+                # dpg.add_button(label='button', callback=popup_callback)
                 with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
                     with dpg.group(tag='pop_up_exps'):
                         with dpg.group(tag='pop_up_exps_sub'):
@@ -470,7 +566,7 @@ def main(args):
                         for e in episodes[DEFAULT_EPISODE_IDX-1]['expressions']:
                             items.append(dpg.add_selectable(label=e))
                     for item in items:
-                        dpg.configure_item(item, callback=_selection, user_data=items)
+                        dpg.configure_item(item, callback=exp_select_callback, user_data=items)
                 # Operating logs
                 # dpg.add_text("操作日志：")
 

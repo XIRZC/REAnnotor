@@ -1,71 +1,77 @@
-from math import cos, pi, sin
-import dearpygui.dearpygui as dpg
+import numpy as np
+import cv2
+# def get_mask_by_point(data, i, j):
+#     def dfs(data, fill, point, i, j):
+#         # leaf
+#         if not np.array_equal(data[i, j, :], point):
+#             return
+#         fill[i, j, :] = point
+#         visited[i][j] = True
+#         # adajecent nodes traverse
+#         for k in range(4):
+#             ni, nj = i + di[k], j + dj[k]
+#             print(ni, nj)
+#             if boundary((ni, nj), 0, 0, 6, 10) and not visited[ni][nj]:
+#                 dfs(data, fill, point, ni, nj)
+#     fill = np.zeros_like(data)
+#     point = data[i, j, :]
+#     di, dj = [1, 0, -1, 0], [0, 1, 0, -1]  # adajecent nodes: down, right, up, left
+#     visited = []
+#     for a in range(6):
+#         visited.append([])
+#         for _ in range(10):
+#             visited[a].append(False) 
+#     dfs(data, fill, point, i, j)
+#     print(visited)
+#     cv2.imwrite('seg_data.jpg', data)
+#     cv2.imwrite('fill.png', fill)
+#     return fill
+def get_mask_by_point(data, i, j):
+    def bfs(data, fill, point, i, j):
+        import queue
+        q = queue.Queue()
+        q.put((i, j))
+        fill[i, j] = point
+        while not q.empty():
+            i, j = q.get()
+            for k in range(4):
+                ni, nj = i + di[k], j + dj[k]
+                if boundary((ni, nj), 0, 0, 6, 10) and np.array_equal(data[ni, nj], point):
+                    if np.array_equal(fill[ni, nj], np.zeros(3)):
+                        fill[ni, nj] = point
+                        q.put((ni, nj))
+    def dfs(data, fill, point, i, j):
+        fill[i, j] = point
 
-dpg.create_context()
-dpg.create_viewport(title='Custom Title', width=411, height=200)  # width=600, height=200
+        # adajecent nodes traverse
+        for k in range(4):
+            ni, nj = i + di[k], j + dj[k]
+            if boundary((ni, nj), 0, 0, 6, 10) and np.array_equal(data[ni, nj], point):
+                if np.array_equal(fill[ni, nj], np.zeros(3)):
+                    dfs(data, fill, point, ni, nj)
+    fill = np.zeros_like(data)
+    point = data[i, j]
+    di, dj = [1, 0, -1, 0], [0, 1, 0, -1]  # adajecent nodes: down, right, up, left
+    bfs(data, fill, point, i, j)
+    cv2.imwrite('seg_data.jpg', data)
+    cv2.imwrite('fill.png', fill)
+    return fill
 
-with dpg.window(label="Label", width=800, height=600):
-    pass
+def boundary(p, ltx, lty, rbx, rby):
+    if (p[0] >= ltx and p[0] < rbx) and (p[1] >= lty and p[1] < rby):
+        return True
+    return False
 
+a = [ 
+    [ [171, 2, 3],  [0, 0, 0],  [0, 0, 0],   [0, 0, 0],   [0, 0, 0],   [0, 0, 0],   [255, 255, 255], [0, 0, 0],   [0, 0, 0],   [171, 2, 3]],
+    [ [171, 2, 3], [171, 2, 3], [171, 2, 3], [171, 2, 3], [0, 0, 0],   [0, 0, 0],   [255, 255, 255], [255, 255, 255], [171, 2, 3], [171, 2, 3]],
+    [ [0, 0, 0],   [171, 2, 3], [171, 2, 3], [171, 2, 3], [171, 2, 3], [0, 0, 0],   [255, 255, 255], [255, 255, 255], [0, 0, 0],   [0, 0, 0]],
+    [ [171, 2, 3], [171, 2, 3], [171, 2, 3], [0, 0, 0],   [171, 2, 3], [255, 255, 255], [255, 255, 255], [255, 255, 255], [0, 0, 0],   [0, 0, 0]],
+    [ [171, 2, 3], [171, 2, 3], [0, 0, 0],   [255, 255, 255], [255, 255, 255], [255, 255, 255], [255, 255, 255], [0, 0, 0],   [0, 0, 0],   [0, 0, 0]],
+    [ [171, 2, 3], [171, 2, 3], [171, 2, 3], [171, 2, 3], [255, 255, 255], [255, 255, 255], [255, 255, 255], [255, 255, 255], [0, 0, 0],   [0, 0, 0]]
+]
 
-def on_key_la(sender, app_data):
-    if dpg.is_key_down(dpg.mvKey_A):
-        print("Press Ctrl + A!")
-
-
-with dpg.handler_registry():
-    dpg.add_key_press_handler(dpg.mvKey_LControl, callback=on_key_la)
-
-dpg.setup_dearpygui()
-dpg.show_viewport()
-dpg.start_dearpygui()
-dpg.destroy_context()
-import dearpygui.dearpygui as dpg
-
-dpg.create_context()
-
-
-# def apply_text_multiplier(sender, data):
-#     font_multiplier = dpg.get_value("Font Size Multiplier")
-#     dpg.set_global_font_scale(font_multiplier)
-
-
-# def apply_theme(sender, data):
-#     theme = dpg.get_value("Themes")
-#     dpg.bind_theme(theme)
-
-# with dpg.window(width=600, height=400):
-#     dpg.add_combo(("Dark", "Light", "Classic", "Dark 2", "Grey", "Dark Grey", "Cherry", "Purple", "Gold", "Red"),\
-#      label="Themes", default_value="Dark", callback=apply_theme)
-
-#     dpg.add_slider_float(tag="Font Size Multiplier", default_value=1.0, min_value=0.0, max_value=2.0,
-#                  callback=apply_text_multiplier)
-
-# def update_list(sender, app_data, user_data):
-#     print(id(num_list)) 
-#     user_data.append(5)
-#     print(id(num_list)) 
-    
-
-# def update_text(sender, app_data, user_data):
-#     print('udpate_text', id(user_data))
-#     dpg.delete_item('subg')
-#     with dpg.group(tag='subg', parent='g'):
-#         for n in user_data:
-#             dpg.add_text(default_value=n)
-
-# with dpg.window(width=600, height=400):
-#     num_list = [1,2,3,4]
-#     print(id(num_list))
-#     dpg.add_button(label='Update List', callback=update_list, user_data=num_list)
-#     dpg.add_button(label='Update Text', callback=update_text, user_data=num_list)
-#     with dpg.group(tag='g'):
-#         with dpg.group(tag='subg'):
-#             for n in num_list:
-#                 dpg.add_text(default_value=n)
-
-dpg.create_viewport(title='Test Theme')
-dpg.setup_dearpygui()
-dpg.show_viewport()
-dpg.start_dearpygui()
-dpg.destroy_context()
+arr = np.array(a)
+print(arr.shape)
+fill = get_mask_by_point(arr, 0, 6)
+print(fill)
