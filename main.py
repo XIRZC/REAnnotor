@@ -1,7 +1,6 @@
 # author: mrxirzzz
 
 # internal packages imported
-import enum
 import dearpygui.dearpygui as dpg
 import os
 import argparse
@@ -9,7 +8,6 @@ from pathlib import Path
 import json
 import cv2
 import numpy as np
-import copy
 from json import JSONEncoder
 
 # project packages imported
