@@ -260,7 +260,6 @@ class Episodes(object):
         return r
 
 
-
     def fly_by_trajectory(self, split, episode, save_path, filt, only_json):
         # split_dir = Path(save_path) / split / 'JPEGImages'
         split_dir = Path(save_path) / split

@@ -21,12 +21,13 @@ DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
 
 WIN_FACTOR = 1   # cause my windows has factor 1.5, so need to shrinke resolution
-WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1600 / WIN_FACTOR), int(1000 / WIN_FACTOR), int(3 / WIN_FACTOR)
+WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1620 / WIN_FACTOR), int(1020 / WIN_FACTOR), int(3 / WIN_FACTOR)
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
+EXP_SCROLL_HEIGHT = 230
 
 ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 70
 SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 520
-STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, 965
+STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 65
 
 ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
@@ -34,6 +35,7 @@ SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACT
 MASK_BY_COLOR = False
 USE_THRESHOLD = False
 SEG_SIM_THRESHOLD = 4
+MULTILINE_WORD_COUNT = 10
 
 episodes = None
 mouse_point = []
@@ -46,8 +48,14 @@ def write_json():
     split = dpg.get_value('split')
     scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
     with open('annotations/{}/{}_seg.json'.format(split, scene), mode='w+') as f:
-        json.dump({'episodes': episodes}, f, indent=4, cls=NumpyArrayEncoder)
-        print('Write to json file!')
+        try:
+            json.dump({'episodes': episodes}, f, indent=4, cls=NumpyArrayEncoder)
+            print('Write to json file!')
+            dpg.set_value('save_status', 'Save into json success!')
+            dpg.configure_item('save_success_modal', show=True)
+        except:
+            dpg.set_value('save_status', 'Save into json failed!')
+            dpg.configure_item('save_success_modal', show=True)
 def load_json_callback(sender, app_data, user_data):
     if sender is not None:
         # save all the staged episodes operations
@@ -150,11 +158,9 @@ def idx_callback(sender, app_data, user_data):
             idx = user_data[2]
         dpg.set_value('drag_int_' + obj, idx)
         return idx
-    dpg.set_value('split_txt', 'Split: '+dpg.get_value('split'))
-    dpg.set_value('scene_txt', 'Scene_id: '+dpg.get_value('scene'))
-    dpg.set_value('episode_id', 'Episode_id: '+episodes[episode_idx-1]['episode_id'])
-    dpg.set_value('trajectory_id', 'Trajectory_id: '+episodes[episode_idx-1]['trajectory_id'])
     if obj == 'episodes':
+        global selectable_item_exp
+        selectable_item_exp = ''
         episode_idx = op(episode_idx, mode)
         frame_idx = 1
         dpg.set_value('episode_idx', episode_idx) 
@@ -162,10 +168,8 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('drag_int_frames', frame_idx)
         dpg.set_value('len_episodes', '/' + str(len(episodes)))
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
-        dpg.set_value('split_txt', 'Split: '+dpg.get_value('split'))
-        dpg.set_value('scene_txt', 'Scene_id: '+dpg.get_value('scene'))
-        dpg.set_value('episode_id', 'Episode_id: '+episodes[episode_idx-1]['episode_id'])
-        dpg.set_value('trajectory_id', 'Trajectory_id: '+episodes[episode_idx-1]['trajectory_id'])
+        dpg.set_value('episode_id', 'Episode: '+episodes[episode_idx-1]['episode_id'])
+        dpg.set_value('trajectory_id', 'Trajectory: '+episodes[episode_idx-1]['trajectory_id'])
         dpg.configure_item('drag_int_episodes', max_value=len(episodes))
         load_imgexpmasks()
         exps_show_callback(sender, app_data, user_data)
@@ -188,8 +192,9 @@ def exps_show_callback(sender, app_data, user_data):
     items = []
     dpg.delete_item('exps_sub')
     with dpg.group(tag='exps_sub', parent='exps'):
-        for e in episodes[episode_idx-1]['expressions'].values():
-            items.append(dpg.add_selectable(label=e))
+        with dpg.child_window(height=EXP_SCROLL_HEIGHT, delay_search=True):
+            for e in episodes[episode_idx-1]['expressions'].values():
+                items.append(dpg.add_selectable(label=e))
     for item in items:
         dpg.configure_item(item, callback=exp_select_callback, user_data=items)
     # update popup exps edit panel
@@ -199,9 +204,9 @@ def exps_show_callback(sender, app_data, user_data):
         ins_multiline = ''
         for i, ins_word in enumerate(ins.split()):
             ins_multiline += ins_word + ' '
-            if (i + 1) % 7 == 0:
+            if (i + 1) % MULTILINE_WORD_COUNT == 0:
                 ins_multiline += '\n'
-        dpg.add_input_text(default_value=ins_multiline, tag='ins_multiline', multiline=True, readonly=True)
+        dpg.add_input_text(default_value=ins_multiline, tag='ins_multiline', multiline=True, readonly=True, width=-1)
         for e_id, e in episodes[episode_idx-1]['expressions'].items():
             with dpg.group(horizontal=True, tag=e_id):
                 dpg.add_input_text(default_value=e, tag=e_id+'input', user_data=[e_id, 'upd'], callback=exps_operation)
@@ -219,9 +224,9 @@ def exps_operation(sender, app_data, user_data):
         v_j = dic[j]
         dic[i] = v_j
         dic[j] = v_i
-    def log():
-        for i in episodes[episode_idx-1]['expressions']:
-            print(type(i), i)
+    # def log():
+    #     for i in episodes[episode_idx-1]['expressions']:
+    #         print(type(i), i)
     e_id, mode = user_data[0], user_data[1]
     episode_idx = int(dpg.get_value('episode_idx'))
     if mode == 'add':
@@ -231,23 +236,24 @@ def exps_operation(sender, app_data, user_data):
         # log()
         exchange_exps_dict(episodes[episode_idx-1]['expressions'], str(length), e_id)
         # log()
-        exps_show_callback(sender, app_data, user_data)
+        # exps_show_callback(sender, app_data, user_data)
         # screen repeat exp
         # sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
     elif mode == 'del':
         del episodes[episode_idx-1]['expressions'][e_id]
         upd_exps_dict_id()
         # log()
-        exps_show_callback(sender, app_data, user_data)
+        # exps_show_callback(sender, app_data, user_data)
     elif mode == 'upd':
         episodes[episode_idx-1]['expressions'][e_id] = dpg.get_value(sender)
         upd_exps_dict_id()
         # log()
-        exps_show_callback(sender, app_data, user_data)
+        # exps_show_callback(sender, app_data, user_data)
         # sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
     else:   # save
+        exps_show_callback(sender, app_data, user_data)
+        # write_json()
         dpg.configure_item('pop_edit_panel', show=False)
-        write_json()
 # expression selection function
 def exp_select_callback(sender, app_data, user_data):
     global selectable_item_exp
@@ -278,7 +284,7 @@ def mouse_event_handler(sender, data):
     if type == "mvAppItemType::mvMouseDoubleClickHandler":
         mask_operation('del')
     if type == "mvAppItemType::mvMouseMoveHandler":
-        dpg.set_value('mouse_move', f"Mouse pos: {data}")
+        # dpg.set_value('mouse_move', f"Mouse pos: {data}")
         mouse_point = data
 def mask_operation(mode):
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
@@ -293,11 +299,12 @@ def mask_operation(mode):
             else:
                 filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
             # dpg.set_value('ori_frame', set_mask_for_ori(raw_data_ori, filtered_mask).astype(np.float32) / 255)
-            if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
-            else:
-                episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
-            mask_show_callback(None, None, None)
+            if selectable_item_exp != '':
+                if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                    set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
+                else:
+                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
+                mask_show_callback(None, None, None)
     elif mode == 'del':
         if boundary(mouse_point, ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y, ORI_FRAME_END_X, ORI_FRAME_END_Y):
             i, j = restore(mouse_point, 'ori')
@@ -381,7 +388,7 @@ def toggle_bind_key_callback():
             dpg.configure_item('bind_key_' + i, callback=None)
     elif dpg.is_key_down(dpg.mvKey_S):
         write_json()
-    dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
+    # dpg.set_value('shortcut', ' Shortcut: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 def toggle_bind_key():
     ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
     for i in ls:
@@ -389,7 +396,7 @@ def toggle_bind_key():
             dpg.configure_item('bind_key_' + i, callback=keyboard_event_handler)
         else:
             dpg.configure_item('bind_key_' + i, callback=None)
-    dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
+    # dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 
 
 # util functions
@@ -466,7 +473,7 @@ def main(args):
 
 
     # Main window for UI
-    with dpg.window(label="AirVLN Referring Expression 标注工具", width=WINDOW_WIDTH, height=WINDOW_HEIGHT, no_collapse=True, no_title_bar=True, no_move=True):
+    with dpg.window(label="AirVLN Referring Expression 标注工具", width=WINDOW_WIDTH, height=WINDOW_HEIGHT, no_collapse=True, no_title_bar=True, no_move=True, tag='main_window'):
 
         dpg.bind_font(font1)
 
@@ -474,7 +481,7 @@ def main(args):
         #TODO
         with dpg.menu_bar():
             with dpg.menu(label="Menu"):
-                dpg.add_menu_item(label="Load json file", callback=load_json)
+                # dpg.add_menu_item(label="Load json file", callback=load_json)
                 dpg.add_menu_item(label="Save json file", callback=write_json)
             with dpg.menu(label="Tools"):
                 dpg.add_menu_item(label="Show About", callback=lambda:dpg.show_tool(dpg.mvTool_About))
@@ -557,7 +564,6 @@ def main(args):
                     with dpg.tree_node(label='注意事项'):
                         dpg.add_text("关闭软件前按Ctrl+S进行保存！", bullet=True)
                         dpg.add_text("在弹出窗口编辑或删除完表达式后，需通过保存按钮关闭！", bullet=True)
-                        dpg.add_text("在弹出窗口编辑表达式完成时需要按Enter键进行确认！", bullet=True)
                 # Navigation instructions, parsed referring expression highlighted and translated results
                 with dpg.group():
                     dpg.add_text('导航指令：', color=(255, 0, 0))
@@ -569,14 +575,19 @@ def main(args):
                     dpg.add_text('已解析表达式(存在冗余或不准确)', color=(0, 255, 0))
                     dpg.add_button(label='编辑', tag='pop_up_edit_btn', callback=popup_callback)
                 # dpg.add_button(label='button', callback=popup_callback)
+                with dpg.popup('pop_up_edit_btn', modal=True, tag="save_success_modal", no_move=True):
+                    dpg.add_text('Save into json success!', tag='save_status')
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Okay", width=75, callback=lambda: dpg.configure_item("save_success_modal", show=False))
                 with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
                     with dpg.group(tag='pop_up_exps'):
                         with dpg.group(tag='pop_up_exps_sub'):
                             pass
-                    # dpg.add_separator()
-                    # with dpg.group(horizontal=True, xoffset=75):
-                    #     dpg.add_button(label="Save", width=75, user_data=[None, 'save'], callback=exps_operation)
-                    #     dpg.add_button(label="Cancel", width=75, callback=lambda: dpg.configure_item("pop_edit_panel", show=False))
+                    dpg.add_separator()
+                    with dpg.group(horizontal=True, tag='btnlist'):
+                        dpg.add_button(label="Save", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
+                        dpg.add_button(label="Cancel", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
+                    dpg.set_item_pos('pop_edit_panel', [780, 350])
                 with dpg.group(tag='exps'):
                     with dpg.group(tag='exps_sub'):
                         pass
@@ -586,13 +597,11 @@ def main(args):
 
         # Statusbar for loaded json file
         with dpg.group(horizontal=True, pos=[STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y], tag='statusbar'):
-            dpg.add_text('Statusbar -')
-            dpg.add_text('', tag='split_txt')
-            dpg.add_text('', tag='scene_txt')
+            # dpg.add_text('Statusbar -')
             dpg.add_text('', tag='episode_id')
             dpg.add_text('', tag='trajectory_id')
             dpg.add_text('', tag='mouse_move')
-            dpg.add_text('Shortcut Mode: enabled', tag='shortcut')
+            # dpg.add_text('Shortcut: enabled', tag='shortcut')
         
         # load_json_callback for default split, scene, episode_idx, frame_idx
         load_json_callback(None, None, None)
