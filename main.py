@@ -578,7 +578,8 @@ def main(args):
                 with dpg.popup('pop_up_edit_btn', modal=True, tag="save_success_modal", no_move=True):
                     dpg.add_text('', tag='save_status')
                     with dpg.group(horizontal=True):
-                        dpg.add_button(label="Okay", width=75, callback=lambda: dpg.configure_item("save_success_modal", show=False))
+                        dpg.add_button(label="确认", width=75, tag='cfmbtn', callback=lambda: dpg.configure_item("save_success_modal", show=False))
+                        dpg.set_item_pos('cfmbtn', [130, 80])
                 with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
                     with dpg.group(tag='pop_up_exps'):
                         dpg.add_input_text(default_value='', tag='ins_multiline', multiline=True, readonly=True, width=-1)
@@ -586,8 +587,8 @@ def main(args):
                             pass
                     dpg.add_separator()
                     with dpg.group(horizontal=True, tag='btnlist'):
-                        dpg.add_button(label="Save", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
-                        dpg.add_button(label="Cancel", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
+                        dpg.add_button(label="保存", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
+                        dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
                     dpg.set_item_pos('pop_edit_panel', [780, 350])
                 with dpg.group(tag='exps'):
                     with dpg.group(tag='exps_sub'):
