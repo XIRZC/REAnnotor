@@ -15,19 +15,22 @@ from utils.episodes import Episodes
 
 
 # Global Constant and Variables
-DEFAULT_SPLIT = 'train'
+DEFAULT_SPLIT = 'val_seen'
 DEFAULT_SCENE = 3
 DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
 
 WIN_FACTOR = 1   # cause my windows has factor 1.5, so need to shrinke resolution
-WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1620 / WIN_FACTOR), int(1020 / WIN_FACTOR), int(3 / WIN_FACTOR)
+WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1620 / WIN_FACTOR), int(1030 / WIN_FACTOR), int(3 / WIN_FACTOR)
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
-EXP_SCROLL_HEIGHT = 230
 
-ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 70
-SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 520
-STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 65
+EXP_SCROLL_HEIGHT = 200
+INS_SCROLL_HEIGHT = 140
+INST_SCROLL_HEIGHT = 120
+
+ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 80
+SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 540
+STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 40
 
 ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
@@ -48,13 +51,16 @@ save_split, save_scene = -1, -1
 def write_json():
     with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
         try:
+            dpg.configure_item('saving_indicator_group', show=True)
             json.dump({'episodes': episodes}, f, indent=4, cls=NumpyArrayEncoder)
+            dpg.configure_item('saving_indicator_group', show=False)
             print('Write to json file!')
-            dpg.set_value('save_status', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
-            dpg.configure_item('save_success_modal', show=True)
+            # dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
+            # dpg.configure_item('save_status_modal', show=True)
         except:
-            dpg.set_value('save_status', 'Save into annotations/{}/{}_seg.json failed!'.format(save_split, save_scene))
-            dpg.configure_item('save_success_modal', show=True)
+            dpg.configure_item('saving_indicator_group', show=False)
+            dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json failed!'.format(save_split, save_scene))
+            dpg.configure_item('save_status_modal', show=True)
 def load_json_callback(sender, app_data, user_data):
     if sender is not None:
         # save all the staged episodes operations
@@ -70,21 +76,37 @@ def load_json():
     scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
     global save_split, save_scene
     save_split, save_scene = split, scene
+    dpg.set_value('split_txt', 'Split: ' + save_split)
+    dpg.set_value('scene_txt', 'Scene: ' + save_scene)
     global episodes
     # for epi in episodes:
     #     epi['expressions'] = []  # list of referring expressions
     #     epi['frames'] = []   # list of dict(key: expression, value: corresponding mask ndarray)
+    dpg.configure_item('loading_indicator_group', show=True)
     if os.path.exists('annotations/{}/{}_seg.json'.format(save_split, save_scene)):
         with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='r') as f:
             content = f.read()
             if content:
                 episodes = json.loads(content)['episodes']
+                dpg.configure_item('loading_indicator_group', show=False)
             else:   # not file.close so no content in the json file
-                episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
+                try:
+                    episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
+                    dpg.configure_item('loading_indicator_group', show=False)
+                except:
+                    dpg.set_value('load_status_txt', 'Load annotations/{}/{}_seg.json failed, file does not exists!'.format(save_split, save_scene))
+                    dpg.configure_item('load_status_modal', show=True)
+                    dpg.configure_item('loading_indicator_group', show=False)
     else:
-        episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
-        with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
-            json.dump({'episodes': episodes}, f, indent=4)
+        try:
+            episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
+            # with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
+            #     json.dump({'episodes': episodes}, f, indent=4)
+            dpg.configure_item('loading_indicator_group', show=False)
+        except:
+            dpg.set_value('load_status_txt', 'Load annotations/{}/{}_seg.json failed, file does not exists!'.format(save_split, save_scene))
+            dpg.configure_item('load_status_modal', show=True)
+            dpg.configure_item('loading_indicator_group', show=False)
 def load_split_callback(sender, app_data):
     split_scene_idx_dict = {}
     split_scene_idx_dict['train'] = [1, 2, 3, 4, 5, 8 ,10 , 11, 12, 14, 16, 17, 20, 22, 23, 25, 26]
@@ -92,10 +114,12 @@ def load_split_callback(sender, app_data):
     split_scene_idx_dict['val_unseen'] = [6, 9, 13, 24]
     split_scene_idx_dict['test'] = [7, 15, 18, 21]
     split = dpg.get_value(sender)
-    scene_list = ['None']
+    # scene_list = ['None']
+    scene_list = []
     for idx in split_scene_idx_dict[split]:
         scene_list.append(idx)
     dpg.configure_item('scene', items=scene_list) 
+    dpg.set_value('scene', scene_list[0])
 
 
 # load img and expression annotation function
@@ -107,35 +131,41 @@ def load_imgexpmasks():
     episode_id = episodes[episode_idx-1]['episode_id']
     # load pictures
     global raw_data_ori, raw_data_seg
-    # width, height, _, data_ori = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
-    #     int(scene), trajectory_id, episode_id, frame_idx-1))
-    ori_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
-        int(save_scene), trajectory_id, episode_id, frame_idx-1)
-    seg_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
-        int(save_scene), trajectory_id, episode_id, frame_idx-1)
-    raw_data_ori = cv2.cvtColor(cv2.imread(ori_img_name), cv2.COLOR_BGR2RGB)
-    dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
-    # _, _, _, data_seg = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
-    #     int(scene), trajectory_id, episode_id, frame_idx-1))
-    raw_data_seg = cv2.cvtColor(cv2.imread(seg_img_name), cv2.COLOR_BGR2RGB)
-    # print_img_data(raw_data_seg)
-    dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
+    try:
+        # width, height, _, data_ori = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
+        #     int(scene), trajectory_id, episode_id, frame_idx-1))
+        ori_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
+            int(save_scene), trajectory_id, episode_id, frame_idx-1)
+        seg_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
+            int(save_scene), trajectory_id, episode_id, frame_idx-1)
+        raw_data_ori = cv2.cvtColor(cv2.imread(ori_img_name), cv2.COLOR_BGR2RGB)
+        dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
+        # _, _, _, data_seg = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
+        #     int(scene), trajectory_id, episode_id, frame_idx-1))
+        raw_data_seg = cv2.cvtColor(cv2.imread(seg_img_name), cv2.COLOR_BGR2RGB)
+        # print_img_data(raw_data_seg)
+        dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
 
-    # load exps
-    with (ori_img_dir / '{:02d}_{}_{}'.format(int(save_scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
-        exp = json.loads(f.read())
-    dpg.set_value('instruction', exp['instruction'])
-    dpg.set_value('instruction_translated', exp['instruction_translated'])
-    # update expressions json data into episodes
-    if 'expressions' not in episodes[episode_idx-1]:
-        episodes[episode_idx-1]['expressions'] = exp['expressions']
+        # load exps
+        with (ori_img_dir / '{:02d}_{}_{}'.format(int(save_scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
+            exp = json.loads(f.read())
+        dpg.set_value('instruction', exp['instruction'])
+        dpg.set_value('instruction_translated', exp['instruction_translated'])
+        # update expressions json data into episodes
+        if 'expressions' not in episodes[episode_idx-1]:
+            episodes[episode_idx-1]['expressions'] = exp['expressions']
 
-    # load mask and convert to npndarray
-    # multidim python list -> nparray for show, add and delete
-    if 'frames' in episodes[episode_idx-1]:
-        for dic_key in episodes[episode_idx-1]['frames'][frame_idx-1]:
-            episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
-    return  raw_data_ori, raw_data_seg, exp
+        # load mask and convert to npndarray
+        # multidim python list -> nparray for show, add and delete
+        if 'frames' in episodes[episode_idx-1]:
+            for dic_key in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
+        return  raw_data_ori, raw_data_seg, exp
+    except:
+        dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
+        dpg.configure_item('load_status_modal', show=True)
+        return None, None, ''
+
 
 
 # episode and frame idx editting callback function
@@ -167,8 +197,8 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('drag_int_frames', frame_idx)
         dpg.set_value('len_episodes', '/' + str(len(episodes)))
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
-        dpg.set_value('episode_id', 'Episode: '+episodes[episode_idx-1]['episode_id'])
-        dpg.set_value('trajectory_id', 'Trajectory: '+episodes[episode_idx-1]['trajectory_id'])
+        dpg.set_value('episode_id', 'Episode_ID: '+episodes[episode_idx-1]['episode_id'])
+        dpg.set_value('trajectory_id', 'Trajectory_ID: '+episodes[episode_idx-1]['trajectory_id'])
         dpg.configure_item('drag_int_episodes', max_value=len(episodes))
         load_imgexpmasks()
         exps_show_callback(sender, app_data, True)
@@ -284,7 +314,7 @@ def mouse_event_handler(sender, data):
     if type == "mvAppItemType::mvMouseDoubleClickHandler":
         mask_operation('del')
     if type == "mvAppItemType::mvMouseMoveHandler":
-        # dpg.set_value('mouse_move', f"Mouse pos: {data}")
+        dpg.set_value('mouse_move', f"Mouse pos: {data}")
         mouse_point = data
 def mask_operation(mode):
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
@@ -388,7 +418,7 @@ def toggle_bind_key_callback():
             dpg.configure_item('bind_key_' + i, callback=None)
     elif dpg.is_key_down(dpg.mvKey_S):
         write_json()
-    # dpg.set_value('shortcut', ' Shortcut: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
+    dpg.set_value('shortcut', ' Shortcut: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 def toggle_bind_key():
     ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
     for i in ls:
@@ -396,7 +426,7 @@ def toggle_bind_key():
             dpg.configure_item('bind_key_' + i, callback=keyboard_event_handler)
         else:
             dpg.configure_item('bind_key_' + i, callback=None)
-    # dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
+    dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 
 
 # util functions
@@ -504,7 +534,7 @@ def main(args):
                 default_value=DEFAULT_SPLIT, width=90, callback=load_split_callback)
             # scene selector
             dpg.add_text('By Scene:', tag='scene_hint')
-            scene_list = ['None', 1, 2, 3, 4, 5, 8,10, 11, 12, 14, 16, 17, 20, 22, 23, 25, 26]
+            scene_list = [1, 2, 3, 4, 5, 8,10, 11, 12, 14, 16, 17, 20, 22, 23, 25, 26]
             dpg.add_combo(scene_list, tag='scene', default_value=DEFAULT_SCENE, width=50) 
             # Load button
             dpg.add_button(callback=load_json_callback, label="Load", tag='load_btn')
@@ -550,36 +580,45 @@ def main(args):
                 # Insturctions
                 with dpg.tree_node(tag='user_instruction', label='使用说明'):
                     with dpg.tree_node(label='准备事项'):
-                        dpg.add_text("1. 运行scripts/stscene.sh打开场景", wrap=0)
-                        dpg.add_text("2. 运行scripts/save_imgs.sh(需修改对应split、scene和保存路径)保存需要的图片和表达式信息", wrap=0)
+                        dpg.add_text("确保已下载好标注和场景文件并放置在annotations和scenes目录下", wrap=0, bullet=True)
+                        dpg.add_text("运行scripts/stscene.sh打开场景", wrap=0, bullet=True)
+                        dpg.add_text("运行scripts/save_imgs.sh保存需要的图片和表达式信息到data目录下", wrap=0, bullet=True)
                     with dpg.tree_node(label='使用事项'):
-                        dpg.add_text("通过工具栏选定split和scene(第2步一致)后Load图片和表达式信息", wrap=0, bullet=True)
+                        dpg.add_text("通过工具栏选定split和scene后Load图片和表达式信息", wrap=0, bullet=True)
                         dpg.add_text("通过方向键或工具栏中拖动栏控制episode和frame序号来调整左侧原图和segmentation图", wrap=0, bullet=True)
                         dpg.add_text("在左下方segmentation图单击任一mask任一点对当前帧当前表达式添加mask并在原图显示", wrap=0, bullet=True)
                         dpg.add_text("在左上方原图双击任一mask任一点来删除当前选定表达式的mask", wrap=0, bullet=True)
                         dpg.add_text("可通过点击任一表达式来在原图中查看当前帧该表达式已添加的mask, ESC键清除原图mask", wrap=0, bullet=True)
-                        dpg.add_text("可通过表达式选择列表上方的编辑按钮对不正确表达式进行修改和删除", wrap=0, bullet=True)
-                        dpg.add_text("下方状态栏显示当前界面所在的episode_id、trajectory_id和scene_id等状态信息", wrap=0, bullet=True)
-                        dpg.add_text("可通过Ctrl+E打开快捷键模式，Ctrl+D关闭快捷键模式，可在下方状态栏看到当前快捷键模式状态", wrap=0, bullet=True)
-                    with dpg.tree_node(label='注意事项'):
-                        dpg.add_text("关闭软件前按Ctrl+S进行保存！", bullet=True)
-                        dpg.add_text("在弹出窗口编辑或删除完表达式后，需通过保存按钮关闭！", bullet=True)
+                        dpg.add_text("可通过编辑按钮触发弹出窗并进行表达式增加删除和编辑，需按保存按钮关闭", wrap=0, bullet=True)
+                        dpg.add_text("关闭软件前按Ctrl+S进行保存！", bullet=True, wrap=0)
+                        # dpg.add_text("下方状态栏显示当前界面所在的episode_id、trajectory_id和scene_id等状态信息", wrap=0, bullet=True)
+                        # dpg.add_text("可通过Ctrl+E打开快捷键模式，Ctrl+D关闭快捷键模式，可在下方状态栏看到当前快捷键模式状态", wrap=0, bullet=True)
+                    # with dpg.tree_node(label='注意事项'):
+                    #     dpg.add_text("关闭软件前按Ctrl+S进行保存！", bullet=True)
+                    #     dpg.add_text("在弹出窗口编辑或删除完表达式后，需通过保存按钮关闭！", bullet=True)
                 # Navigation instructions, parsed referring expression highlighted and translated results
                 with dpg.group():
                     dpg.add_text('导航指令：', color=(255, 0, 0))
-                    dpg.add_text('', tag='instruction', wrap=0)
+                    with dpg.child_window(height=INS_SCROLL_HEIGHT, delay_search=True):
+                        dpg.add_text('', tag='instruction', wrap=0)
                 with dpg.group():
                     dpg.add_text('导航指令翻译：', color=(255, 0, 0))
-                    dpg.add_text('', tag='instruction_translated', wrap=0)
+                    with dpg.child_window(height=INST_SCROLL_HEIGHT, delay_search=True):
+                        dpg.add_text('', tag='instruction_translated', wrap=0)
                 with dpg.group(horizontal=True):
                     dpg.add_text('已解析表达式(存在冗余或不准确)', color=(0, 255, 0))
                     dpg.add_button(label='编辑', tag='pop_up_edit_btn', callback=popup_callback)
                 # dpg.add_button(label='button', callback=popup_callback)
-                with dpg.popup('pop_up_edit_btn', modal=True, tag="save_success_modal", no_move=True):
-                    dpg.add_text('', tag='save_status')
+                with dpg.popup('pop_up_edit_btn', modal=True, tag="save_status_modal", no_move=True):
+                    dpg.add_text('', tag='save_status_txt', wrap=0)
                     with dpg.group(horizontal=True):
-                        dpg.add_button(label="确认", width=75, tag='cfmbtn', callback=lambda: dpg.configure_item("save_success_modal", show=False))
-                        dpg.set_item_pos('cfmbtn', [130, 80])
+                        dpg.add_button(label="确认", width=75, tag='savecfmbtn', callback=lambda: dpg.configure_item("save_status_modal", show=False))
+                        dpg.set_item_pos('savecfmbtn', [130, 80])
+                with dpg.popup('pop_up_edit_btn', modal=True, tag="load_status_modal", no_move=True):
+                    dpg.add_text('', tag='load_status_txt')
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="确认", width=75, tag='loadcfmbtn', callback=lambda: dpg.configure_item("load_status_modal", show=False))
+                        dpg.set_item_pos('loadcfmbtn', [450, 80])
                 with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
                     with dpg.group(tag='pop_up_exps'):
                         dpg.add_input_text(default_value='', tag='ins_multiline', multiline=True, readonly=True, width=-1)
@@ -599,11 +638,19 @@ def main(args):
 
         # Statusbar for loaded json file
         with dpg.group(horizontal=True, pos=[STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y], tag='statusbar'):
-            # dpg.add_text('Statusbar -')
+            dpg.add_text('Statusbar -')
+            with dpg.group(horizontal=True, tag='saving_indicator_group', show=False):
+                dpg.add_text("Saving file")
+                dpg.add_loading_indicator(style=1, tag='saving_indicator', radius=1.5, color=[0, 0, 255])
+            with dpg.group(horizontal=True, tag='loading_indicator_group', show=False):
+                dpg.add_text("Loading file")
+                dpg.add_loading_indicator(style=1, tag='loading_indicator', radius=1.5, color=[0, 0, 255])
+            dpg.add_text('', tag='split_txt')
+            dpg.add_text('', tag='scene_txt')
             dpg.add_text('', tag='episode_id')
             dpg.add_text('', tag='trajectory_id')
             dpg.add_text('', tag='mouse_move')
-            # dpg.add_text('Shortcut: enabled', tag='shortcut')
+            dpg.add_text('Shortcut: enabled', tag='shortcut')
         
         # load_json_callback for default split, scene, episode_idx, frame_idx
         load_json_callback(None, None, None)
