@@ -20,17 +20,17 @@ DEFAULT_SCENE = 3
 DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
 
-WIN_FACTOR = 1   # cause my windows has factor 1.5, so need to shrinke resolution
-WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1620 / WIN_FACTOR), int(1030 / WIN_FACTOR), int(3 / WIN_FACTOR)
+WIN_FACTOR = 1.25   # cause my windows has factor 1.5, so need to shrinke resolution
+WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / WIN_FACTOR), int(1000 / WIN_FACTOR), int(3 / WIN_FACTOR)
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
 
-EXP_SCROLL_HEIGHT = 200
-INS_SCROLL_HEIGHT = 140
-INST_SCROLL_HEIGHT = 120
+EXP_SCROLL_HEIGHT = 200 / WIN_FACTOR
+INS_SCROLL_HEIGHT = 140 / WIN_FACTOR
+INST_SCROLL_HEIGHT = 120 / WIN_FACTOR
 
-ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 80
-SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 540
-STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 40
+ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 80 / WIN_FACTOR
+SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 520 / WIN_FACTOR
+STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 30 * WIN_FACTOR * WIN_FACTOR
 
 ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
@@ -49,6 +49,7 @@ save_split, save_scene = -1, -1
 
 # Json load and write functions
 def write_json():
+    global episodes
     with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
         try:
             dpg.configure_item('saving_indicator_group', show=True)
@@ -58,6 +59,7 @@ def write_json():
             # dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
             # dpg.configure_item('save_status_modal', show=True)
         except:
+            episodes = None
             dpg.configure_item('saving_indicator_group', show=False)
             dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json failed!'.format(save_split, save_scene))
             dpg.configure_item('save_status_modal', show=True)
@@ -85,15 +87,16 @@ def load_json():
     dpg.configure_item('loading_indicator_group', show=True)
     if os.path.exists('annotations/{}/{}_seg.json'.format(save_split, save_scene)):
         with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='r') as f:
-            content = f.read()
+            content = json.loads(f.read())['episodes']
             if content:
-                episodes = json.loads(content)['episodes']
+                episodes = content
                 dpg.configure_item('loading_indicator_group', show=False)
             else:   # not file.close so no content in the json file
                 try:
                     episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
                     dpg.configure_item('loading_indicator_group', show=False)
                 except:
+                    episodes = None
                     dpg.set_value('load_status_txt', 'Load annotations/{}/{}_seg.json failed, file does not exists!'.format(save_split, save_scene))
                     dpg.configure_item('load_status_modal', show=True)
                     dpg.configure_item('loading_indicator_group', show=False)
@@ -104,6 +107,7 @@ def load_json():
             #     json.dump({'episodes': episodes}, f, indent=4)
             dpg.configure_item('loading_indicator_group', show=False)
         except:
+            episodes = None
             dpg.set_value('load_status_txt', 'Load annotations/{}/{}_seg.json failed, file does not exists!'.format(save_split, save_scene))
             dpg.configure_item('load_status_modal', show=True)
             dpg.configure_item('loading_indicator_group', show=False)
@@ -124,6 +128,7 @@ def load_split_callback(sender, app_data):
 
 # load img and expression annotation function
 def load_imgexpmasks():
+    global episodes
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
     ori_img_dir = Path('.').resolve() / 'data' / save_split / 'origin'
     seg_img_dir = Path('.').resolve() / 'data' / save_split / 'seg'
@@ -162,10 +167,10 @@ def load_imgexpmasks():
                 episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
         return  raw_data_ori, raw_data_seg, exp
     except:
+        episodes = None
         dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
         dpg.configure_item('load_status_modal', show=True)
         return None, None, ''
-
 
 
 # episode and frame idx editting callback function
@@ -314,7 +319,7 @@ def mouse_event_handler(sender, data):
     if type == "mvAppItemType::mvMouseDoubleClickHandler":
         mask_operation('del')
     if type == "mvAppItemType::mvMouseMoveHandler":
-        dpg.set_value('mouse_move', f"Mouse pos: {data}")
+        # dpg.set_value('mouse_move', f"Mouse pos: {data}")
         mouse_point = data
 def mask_operation(mode):
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
@@ -429,6 +434,11 @@ def toggle_bind_key():
     dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 
 
+# scale callback function
+def scale_callback(sender, app_data, user_data):
+    pass
+
+
 # util functions
 def boundary(p, ltx, lty, rbx, rby):
     if (p[0] >= ltx and p[0] < rbx) and (p[1] >= lty and p[1] < rby):
@@ -524,6 +534,7 @@ def main(args):
             with dpg.menu(label="Settings"):
                 dpg.add_menu_item(label="Toggle Fullscreen", callback=lambda:dpg.toggle_viewport_fullscreen())
                 dpg.add_menu_item(label="Toggle Shortcut Key for episode and frame", callback=toggle_bind_key)
+                dpg.add_slider_float(label="Window scale factor", min_value=0.8, max_value=1.5, callback='scale_callback')
 
 
         # Load split and scene json toolbar
