@@ -15,7 +15,7 @@ from utils.episodes import Episodes
 
 
 # Global Constant and Variables
-DEFAULT_SPLIT = 'val_seen'
+DEFAULT_SPLIT = 'train'
 DEFAULT_SCENE = 3
 DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
@@ -35,26 +35,25 @@ SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACT
 MASK_BY_COLOR = False
 USE_THRESHOLD = False
 SEG_SIM_THRESHOLD = 4
-MULTILINE_WORD_COUNT = 10
+MULTILINE_WORD_COUNT = 8
 
 episodes = None
 mouse_point = []
 selectable_item_exp = ''
 raw_data_ori, raw_data_seg = [], []
+save_split, save_scene = -1, -1
 
 
 # Json load and write functions
 def write_json():
-    split = dpg.get_value('split')
-    scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
-    with open('annotations/{}/{}_seg.json'.format(split, scene), mode='w+') as f:
+    with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
         try:
             json.dump({'episodes': episodes}, f, indent=4, cls=NumpyArrayEncoder)
             print('Write to json file!')
-            dpg.set_value('save_status', 'Save into json success!')
+            dpg.set_value('save_status', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
             dpg.configure_item('save_success_modal', show=True)
         except:
-            dpg.set_value('save_status', 'Save into json failed!')
+            dpg.set_value('save_status', 'Save into annotations/{}/{}_seg.json failed!'.format(save_split, save_scene))
             dpg.configure_item('save_success_modal', show=True)
 def load_json_callback(sender, app_data, user_data):
     if sender is not None:
@@ -69,20 +68,22 @@ def load_json_callback(sender, app_data, user_data):
 def load_json():
     split = dpg.get_value('split')
     scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
+    global save_split, save_scene
+    save_split, save_scene = split, scene
     global episodes
     # for epi in episodes:
     #     epi['expressions'] = []  # list of referring expressions
     #     epi['frames'] = []   # list of dict(key: expression, value: corresponding mask ndarray)
-    if os.path.exists('annotations/{}/{}_seg.json'.format(split, scene)):
-        with open('annotations/{}/{}_seg.json'.format(split, scene), mode='r') as f:
+    if os.path.exists('annotations/{}/{}_seg.json'.format(save_split, save_scene)):
+        with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='r') as f:
             content = f.read()
             if content:
                 episodes = json.loads(content)['episodes']
             else:   # not file.close so no content in the json file
-                episodes = Episodes(split, scene=scene, only_json=True).get_episodes()
+                episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
     else:
-        episodes = Episodes(split, scene=scene, only_json=True).get_episodes()
-        with open('annotations/{}/{}_seg.json'.format(split, scene), mode='w+') as f:
+        episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
+        with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
             json.dump({'episodes': episodes}, f, indent=4)
 def load_split_callback(sender, app_data):
     split_scene_idx_dict = {}
@@ -100,10 +101,8 @@ def load_split_callback(sender, app_data):
 # load img and expression annotation function
 def load_imgexpmasks():
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
-    scene = dpg.get_value('scene')
-    split = dpg.get_value('split')
-    ori_img_dir = Path('.').resolve() / 'data' / split / 'origin'
-    seg_img_dir = Path('.').resolve() / 'data' / split / 'seg'
+    ori_img_dir = Path('.').resolve() / 'data' / save_split / 'origin'
+    seg_img_dir = Path('.').resolve() / 'data' / save_split / 'seg'
     trajectory_id = episodes[episode_idx-1]['trajectory_id']
     episode_id = episodes[episode_idx-1]['episode_id']
     # load pictures
@@ -111,9 +110,9 @@ def load_imgexpmasks():
     # width, height, _, data_ori = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
     #     int(scene), trajectory_id, episode_id, frame_idx-1))
     ori_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
-        int(scene), trajectory_id, episode_id, frame_idx-1)
+        int(save_scene), trajectory_id, episode_id, frame_idx-1)
     seg_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
-        int(scene), trajectory_id, episode_id, frame_idx-1)
+        int(save_scene), trajectory_id, episode_id, frame_idx-1)
     raw_data_ori = cv2.cvtColor(cv2.imread(ori_img_name), cv2.COLOR_BGR2RGB)
     dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
     # _, _, _, data_seg = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
@@ -123,7 +122,7 @@ def load_imgexpmasks():
     dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
 
     # load exps
-    with (ori_img_dir / '{:02d}_{}_{}'.format(int(scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
+    with (ori_img_dir / '{:02d}_{}_{}'.format(int(save_scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
         exp = json.loads(f.read())
     dpg.set_value('instruction', exp['instruction'])
     dpg.set_value('instruction_translated', exp['instruction_translated'])
@@ -172,7 +171,7 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('trajectory_id', 'Trajectory: '+episodes[episode_idx-1]['trajectory_id'])
         dpg.configure_item('drag_int_episodes', max_value=len(episodes))
         load_imgexpmasks()
-        exps_show_callback(sender, app_data, user_data)
+        exps_show_callback(sender, app_data, True)
     elif obj == 'frames':
         frame_idx = op(frame_idx, mode)
         dpg.set_value('frame_idx', frame_idx)
@@ -200,13 +199,14 @@ def exps_show_callback(sender, app_data, user_data):
     # update popup exps edit panel
     dpg.delete_item('pop_up_exps_sub')
     with dpg.group(tag='pop_up_exps_sub', parent='pop_up_exps'):
-        ins = exp['instruction']
-        ins_multiline = ''
-        for i, ins_word in enumerate(ins.split()):
-            ins_multiline += ins_word + ' '
-            if (i + 1) % MULTILINE_WORD_COUNT == 0:
-                ins_multiline += '\n'
-        dpg.add_input_text(default_value=ins_multiline, tag='ins_multiline', multiline=True, readonly=True, width=-1)
+        if user_data:
+            ins = exp['instruction']
+            ins_multiline = ''
+            for i, ins_word in enumerate(ins.split()):
+                ins_multiline += ins_word + ' '
+                if (i + 1) % MULTILINE_WORD_COUNT == 0:
+                    ins_multiline += '\n'
+            dpg.set_value('ins_multiline', ins_multiline)
         for e_id, e in episodes[episode_idx-1]['expressions'].items():
             with dpg.group(horizontal=True, tag=e_id):
                 dpg.add_input_text(default_value=e, tag=e_id+'input', user_data=[e_id, 'upd'], callback=exps_operation)
@@ -236,14 +236,14 @@ def exps_operation(sender, app_data, user_data):
         # log()
         exchange_exps_dict(episodes[episode_idx-1]['expressions'], str(length), e_id)
         # log()
-        # exps_show_callback(sender, app_data, user_data)
+        exps_show_callback(sender, app_data, user_data)
         # screen repeat exp
         # sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
     elif mode == 'del':
         del episodes[episode_idx-1]['expressions'][e_id]
         upd_exps_dict_id()
         # log()
-        # exps_show_callback(sender, app_data, user_data)
+        exps_show_callback(sender, app_data, user_data)
     elif mode == 'upd':
         episodes[episode_idx-1]['expressions'][e_id] = dpg.get_value(sender)
         upd_exps_dict_id()
@@ -252,7 +252,7 @@ def exps_operation(sender, app_data, user_data):
         # sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
     else:   # save
         exps_show_callback(sender, app_data, user_data)
-        # write_json()
+        write_json()
         dpg.configure_item('pop_edit_panel', show=False)
 # expression selection function
 def exp_select_callback(sender, app_data, user_data):
@@ -576,11 +576,12 @@ def main(args):
                     dpg.add_button(label='编辑', tag='pop_up_edit_btn', callback=popup_callback)
                 # dpg.add_button(label='button', callback=popup_callback)
                 with dpg.popup('pop_up_edit_btn', modal=True, tag="save_success_modal", no_move=True):
-                    dpg.add_text('Save into json success!', tag='save_status')
+                    dpg.add_text('', tag='save_status')
                     with dpg.group(horizontal=True):
                         dpg.add_button(label="Okay", width=75, callback=lambda: dpg.configure_item("save_success_modal", show=False))
                 with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
                     with dpg.group(tag='pop_up_exps'):
+                        dpg.add_input_text(default_value='', tag='ins_multiline', multiline=True, readonly=True, width=-1)
                         with dpg.group(tag='pop_up_exps_sub'):
                             pass
                     dpg.add_separator()
