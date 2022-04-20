@@ -9,6 +9,9 @@ import json
 import cv2
 import numpy as np
 from json import JSONEncoder
+import math
+
+from regex import F
 
 # project packages imported
 from utils.episodes import Episodes
@@ -21,16 +24,16 @@ DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
 
 WIN_FACTOR = 1.25   # cause my windows has factor 1.5, so need to shrinke resolution
-WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / WIN_FACTOR), int(1000 / WIN_FACTOR), int(3 / WIN_FACTOR)
+WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / WIN_FACTOR), int(1000 / WIN_FACTOR), 3 / WIN_FACTOR
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
 
-EXP_SCROLL_HEIGHT = 200 / WIN_FACTOR
-INS_SCROLL_HEIGHT = 140 / WIN_FACTOR
-INST_SCROLL_HEIGHT = 120 / WIN_FACTOR
+EXP_SCROLL_HEIGHT = 180 / WIN_FACTOR
+INS_SCROLL_HEIGHT = 120 / WIN_FACTOR
+INST_SCROLL_HEIGHT = 100 / WIN_FACTOR
 
-ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 80 / WIN_FACTOR
-SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 520 / WIN_FACTOR
-STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 30 * WIN_FACTOR * WIN_FACTOR
+ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 75 / WIN_FACTOR
+SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 515 / WIN_FACTOR
+STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 23 * math.pow(WIN_FACTOR, 4/3)
 
 ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
@@ -42,7 +45,7 @@ MULTILINE_WORD_COUNT = 8
 
 episodes = None
 mouse_point = []
-selectable_item_exp = ''
+selectable_item_exp, items = '', []
 raw_data_ori, raw_data_seg = [], []
 save_split, save_scene = -1, -1
 
@@ -223,14 +226,15 @@ def exps_show_callback(sender, app_data, user_data):
     episode_idx = int(dpg.get_value('episode_idx'))
     _, _, exp = load_imgexpmasks()
     # update exps show selectable list
+    global items
     items = []
     dpg.delete_item('exps_sub')
     with dpg.group(tag='exps_sub', parent='exps'):
-        with dpg.child_window(height=EXP_SCROLL_HEIGHT, delay_search=True):
+        with dpg.child_window(height=EXP_SCROLL_HEIGHT, delay_search=True, tag='exp_scroll'):
             for e in episodes[episode_idx-1]['expressions'].values():
                 items.append(dpg.add_selectable(label=e))
     for item in items:
-        dpg.configure_item(item, callback=exp_select_callback, user_data=items)
+        dpg.configure_item(item, callback=exp_select_callback)
     # update popup exps edit panel
     dpg.delete_item('pop_up_exps_sub')
     with dpg.group(tag='pop_up_exps_sub', parent='pop_up_exps'):
@@ -292,7 +296,7 @@ def exps_operation(sender, app_data, user_data):
 # expression selection function
 def exp_select_callback(sender, app_data, user_data):
     global selectable_item_exp
-    for item in user_data:
+    for item in items:
         if item != sender:
             dpg.set_value(item, False)
         else:
@@ -348,8 +352,11 @@ def mask_operation(mode):
                 filtered_mask = get_mask_by_color(raw_data_seg, i, j)
             else:
                 filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
-            set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask, mode=='unfill')
-            mask_show_callback(None, None, None)
+            if selectable_item_exp != '':
+                if 'frames' in episodes[episode_idx-1]:
+                    if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                        set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask, mode=='unfill')
+                        mask_show_callback(None, None, None)
     else:   
         pass
 def get_mask_by_color(data, i, j):
@@ -409,6 +416,8 @@ def keyboard_event_handler(sender, app_data, user_data):
     elif app_data == 256: # press ESC
         load_imgexpmasks()
         dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
+        selectable_item_exp = ''
+        exp_select_callback(None, None, None)
     else:
         print('Other key_id: {} pressed!'.format(app_data))
 def toggle_bind_key_callback():
@@ -436,7 +445,38 @@ def toggle_bind_key():
 
 # scale callback function
 def scale_callback(sender, app_data, user_data):
-    pass
+    scale = dpg.get_value(sender)
+    # print(scale)
+
+    global WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR
+    WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / scale), int(1050 / scale), 3 / scale
+
+    global EXP_SCROLL_HEIGHT, INS_SCROLL_HEIGHT, INST_SCROLL_HEIGHT
+    EXP_SCROLL_HEIGHT = 180 / scale
+    INS_SCROLL_HEIGHT = 120 / scale
+    INST_SCROLL_HEIGHT = 100 / scale
+
+    global ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y, ORI_FRAME_END_X, ORI_FRAME_END_Y
+    global SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y, SEG_FRAME_END_X, SEG_FRAME_END_Y
+    ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 90 / scale
+    SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 530 / scale
+    ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
+    SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
+
+    global STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y
+
+    STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 23 * math.pow(scale, 4/3)
+
+    # set window and item size and pos
+    dpg.set_viewport_height(WINDOW_HEIGHT)
+    dpg.set_viewport_width(WINDOW_WIDTH)
+    dpg.configure_item('main_window', width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
+    dpg.configure_item('exp_scroll', height=EXP_SCROLL_HEIGHT)
+    dpg.configure_item('ins_scroll', height=INS_SCROLL_HEIGHT)
+    dpg.configure_item('inst_scroll', height=INST_SCROLL_HEIGHT)
+    dpg.configure_item('ori_frame_img', pos=[ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y], width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR)
+    dpg.configure_item('seg_frame_img', pos=[SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y], width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR)
+    dpg.configure_item('statusbar', pos=[STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y])
 
 
 # util functions
@@ -534,7 +574,7 @@ def main(args):
             with dpg.menu(label="Settings"):
                 dpg.add_menu_item(label="Toggle Fullscreen", callback=lambda:dpg.toggle_viewport_fullscreen())
                 dpg.add_menu_item(label="Toggle Shortcut Key for episode and frame", callback=toggle_bind_key)
-                dpg.add_slider_float(label="Window scale factor", min_value=0.8, max_value=1.5, callback='scale_callback')
+                dpg.add_slider_float(label="Window scale factor", min_value=1.0, max_value=1.5, callback=scale_callback, default_value=1.25, format='%.2f')
 
 
         # Load split and scene json toolbar
@@ -583,8 +623,8 @@ def main(args):
         with dpg.group(horizontal=True):
             # space to show origin and segmentation frames
             with dpg.group():
-                dpg.add_image("ori_frame", width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR, pos=[ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y])
-                dpg.add_image("seg_frame", width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR, pos=[SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y])
+                dpg.add_image("ori_frame", width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR, pos=[ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y], tag='ori_frame_img')
+                dpg.add_image("seg_frame", width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR, pos=[SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y], tag='seg_frame_img')
             # space to show instructions, referring expressions highlighted navigation instructions,
             # tranlated navigation instructions and operating logs
             with dpg.group():
@@ -610,11 +650,11 @@ def main(args):
                 # Navigation instructions, parsed referring expression highlighted and translated results
                 with dpg.group():
                     dpg.add_text('导航指令：', color=(255, 0, 0))
-                    with dpg.child_window(height=INS_SCROLL_HEIGHT, delay_search=True):
+                    with dpg.child_window(height=INS_SCROLL_HEIGHT, delay_search=True, tag='ins_scroll'):
                         dpg.add_text('', tag='instruction', wrap=0)
                 with dpg.group():
                     dpg.add_text('导航指令翻译：', color=(255, 0, 0))
-                    with dpg.child_window(height=INST_SCROLL_HEIGHT, delay_search=True):
+                    with dpg.child_window(height=INST_SCROLL_HEIGHT, delay_search=True, tag='inst_scroll'):
                         dpg.add_text('', tag='instruction_translated', wrap=0)
                 with dpg.group(horizontal=True):
                     dpg.add_text('已解析表达式(存在冗余或不准确)', color=(0, 255, 0))
@@ -652,10 +692,10 @@ def main(args):
             dpg.add_text('Statusbar -')
             with dpg.group(horizontal=True, tag='saving_indicator_group', show=False):
                 dpg.add_text("Saving file")
-                dpg.add_loading_indicator(style=1, tag='saving_indicator', radius=1.5, color=[0, 0, 255])
+                dpg.add_loading_indicator(style=1, tag='saving_indicator', radius=1.3, color=[0, 111, 255])
             with dpg.group(horizontal=True, tag='loading_indicator_group', show=False):
                 dpg.add_text("Loading file")
-                dpg.add_loading_indicator(style=1, tag='loading_indicator', radius=1.5, color=[0, 0, 255])
+                dpg.add_loading_indicator(style=1, tag='loading_indicator', radius=1.3, color=[0, 111, 255])
             dpg.add_text('', tag='split_txt')
             dpg.add_text('', tag='scene_txt')
             dpg.add_text('', tag='episode_id')
