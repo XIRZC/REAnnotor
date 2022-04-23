@@ -259,12 +259,13 @@ def exps_show_callback(sender, app_data, user_data):
         dpg.set_value('ins_multiline', ins_multiline)
     dpg.delete_item('pop_up_exps_sub')
     with dpg.group(tag='pop_up_exps_sub', parent='pop_up_exps'):
-        with dpg.child_window(height=EXP_POPUP_SCROLL_HEIGHT, width=450, delay_search=True, tag='exp_popup_scroll'):
-            dpg.add_text('注：所有编辑操作完成需保存,可复制粘贴', wrap=0, color=(255, 0, 0))
+        with dpg.child_window(height=EXP_POPUP_SCROLL_HEIGHT, width=600, delay_search=True, tag='exp_popup_scroll'):
+            dpg.add_text('注：所有编辑操作完成后需确认,可复制粘贴', wrap=0, color=(255, 0, 0))
             for e_id, e in episodes[episode_idx-1]['expressions'].items():
                 with dpg.group(horizontal=True, tag=e_id):
                     dpg.add_input_text(default_value=e, tag=e_id+'input', user_data=[e_id, 'upd'], callback=exps_operation)
-                    dpg.add_button(label='插入', tag=e_id+'addbtn', user_data=[e_id, 'add'], callback=exps_operation)
+                    dpg.add_button(label='上插入', tag=e_id+'addbtnabove', user_data=[e_id, 'add', 'above'], callback=exps_operation)
+                    dpg.add_button(label='下插入', tag=e_id+'addbtnbelow', user_data=[e_id, 'add', 'below'], callback=exps_operation)
                     dpg.add_button(label='删除', tag=e_id+'delbtn', user_data=[e_id, 'del'], callback=exps_operation)
 def exps_operation(sender, app_data, user_data):
     def upd_exps_dict_id():
@@ -277,20 +278,28 @@ def exps_operation(sender, app_data, user_data):
         v_j = dic[j]
         dic[i] = v_j
         dic[j] = v_i
-    e_id, mode = user_data[0], user_data[1]
+    def log():
+        for id, exp in episodes[episode_idx-1]['expressions'].items():
+            print(id, exp)
+    e_id, mode = int(user_data[0]), user_data[1]
     episode_idx = int(dpg.get_value('episode_idx'))
     if mode == 'add':
+        loc = user_data[2]
         # log()
+        if loc == 'below':
+            e_id += 1
         length = len(episodes[episode_idx-1]['expressions'])
         episodes[episode_idx-1]['expressions'][str(length)] = ''
         # log()
-        exchange_exps_dict(episodes[episode_idx-1]['expressions'], str(length), e_id)
+        for i in range(length, e_id, -1):
+            episodes[episode_idx-1]['expressions'][str(i)] = episodes[episode_idx-1]['expressions'][str(i-1)]
+        episodes[episode_idx-1]['expressions'][str(e_id)] = ''
         # log()
         exps_show_callback(sender, app_data, user_data)
         # screen repeat exp
         # sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
     elif mode == 'del':
-        del episodes[episode_idx-1]['expressions'][e_id]
+        del episodes[episode_idx-1]['expressions'][str(e_id)]
         upd_exps_dict_id()
         # log()
         exps_show_callback(sender, app_data, user_data)
@@ -302,7 +311,7 @@ def exps_operation(sender, app_data, user_data):
         # sorted(set(episodes[episode_idx-1]['expressions']), key=episodes[episode_idx-1]['expressions'].index)
     else:   # save
         exps_show_callback(sender, app_data, user_data)
-        write_json()
+        # write_json()
         dpg.configure_item('pop_edit_panel', show=False)
 # expression selection function
 def exp_select_callback(sender, app_data, user_data):
@@ -809,8 +818,8 @@ def main(args):
                             pass
                     dpg.add_separator()
                     with dpg.group(horizontal=True, tag='btnlist'):
-                        dpg.add_button(label="保存", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
-                        dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
+                        dpg.add_button(label="确认", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
+                        # dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
                     # dpg.set_item_pos('pop_edit_panel', [780, 350])
                     dpg.set_item_pos('pop_edit_panel', [650, 250])
                 with dpg.group(tag='exps'):
