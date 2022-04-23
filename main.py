@@ -14,14 +14,18 @@ import random
 
 # project packages imported
 
+DVC = 'WIN'
+
 # Global Constant and Variables
 DEFAULT_SPLIT = 'val_seen'
 DEFAULT_SCENE = 3
 DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
 
-# WIN_FACTOR = 1.25   # cause my windows has factor 1.5, so need to shrinke resolution  
-WIN_FACTOR = 1  # linux adaption
+if DVC == 'WIN':
+    WIN_FACTOR = 1.25   # cause my windows has factor 1.5, so need to shrinke resolution  
+else:
+    WIN_FACTOR = 1  # linux adaption
 WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / WIN_FACTOR), int(1050 / WIN_FACTOR), 3 / WIN_FACTOR
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
 
@@ -122,7 +126,6 @@ def load_json():
         # #     json.dump({'episodes': episodes}, f, indent=4)
         # dpg.configure_item('loading_indicator_group', show=False)
         try:
-            print('true')
             episodes = load_scene(split, scene)
             # with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
             #     json.dump({'episodes': episodes}, f, indent=4)
@@ -161,7 +164,7 @@ def load_imgexpmasks(mode=''):
     if 'frames' in episodes[episode_idx-1]:
         for dic_key in episodes[episode_idx-1]['frames'][frame_idx-1]:
             # episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
-            contours = episodes[episode_idx-1]['frames'][frame_idx-1][dic_key]['contours']
+            contours = episodes[episode_idx-1]['frames'][frame_idx-1][dic_key]
             for i in range(len(contours)):
                 contours[i] = np.asarray(contours[i])
 
@@ -353,9 +356,8 @@ def mask_show_callback(sender, app_data, user_data):
     if 'frames' in episodes[episode_idx-1]:
         frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
         if selectable_item_exp in frame_mask_dict:
-            # color = frame_mask_dict[selectable_item_exp]['color']
             color = COLORS[random.randint(0, 4)]
-            contours = frame_mask_dict[selectable_item_exp]['contours']
+            contours = frame_mask_dict[selectable_item_exp]
             # set_mask(raw_data_ori, mask_nparray)
             bk = np.zeros_like(raw_data_ori)
             bk = cv2.drawContours(bk, contours, -1, color, -1)
@@ -372,9 +374,8 @@ def eval_enable():
             color_id = 0
             ids = [0, 1, 2, 3, 4]
             random.shuffle(ids)
-            for exp, contour_dict in frame_mask_dict.items():
+            for exp, contours in frame_mask_dict.items():
                 color = COLORS[ids[color_id]]
-                contours = contour_dict['contours']
                 # set_mask(raw_data_ori, mask_nparray)
                 # raw_data_ori = cv2.addWeighted(raw_data_ori, 1, mask_nparray.astype(np.uint8), FUSION_FACTOR, 0)
                 dpg.add_text(exp, color=color)
@@ -408,22 +409,6 @@ def mask_operation(mode):
                 filtered_mask = get_mask_by_graph(raw_data_seg, i, j, mode='subs')
             else:
                 filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
-            # mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
-            # contours = measure.find_contours(mask_gray, 0.5, positive_orientation='low')
-            # segmentations = []
-            # polygons = []
-            # for contour in contours:
-            #     # Flip from (row, col) representation to (x, y)
-            #     # and subtract the padding pixel
-            #     for i in range(len(contour)):
-            #         row, col = contour[i]
-            #         contour[i] = (col - 1, row - 1)
-            # # Make a polygon and simplify it
-            # poly = Polygon(contour)
-            # poly = poly.simplify(1.0, preserve_topology=False)
-            # polygons.append(poly)
-            # segmentation = np.array(poly.exterior.coords).ravel().tolist()
-            # segmentations.append(segmentation)
 
             mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
             _, thresh = cv2.threshold(mask_gray, GRAY_THRESHOLD, 255, 0)
@@ -433,12 +418,11 @@ def mask_operation(mode):
             # dpg.set_value('ori_frame', set_mask_for_ori(raw_data_ori, filtered_mask).astype(np.float32) / 255)
             if selectable_item_exp != '':
                 if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours'].append(contours[0])
-                    # set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
+                    if not contour_contains(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], contours[0]):
+                        episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp].append(contours[0])
+                        # set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
                 else:
-                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = dict()
-                    # episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['color'] = color
-                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours'] = [contours[0]]
+                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = [contours[0]]
                     # episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
                 mask_show_callback(None, None, None)
     elif mode == 'del':
@@ -452,22 +436,22 @@ def mask_operation(mode):
             if selectable_item_exp != '':
                 if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
                     # set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask, mode=='unfill')
-                    for contour in episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours']:
+                    for contour in episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]:
                         if np.array_equal(contour, contours[0]):
-                            episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours'].remove(contour)
-                            if len(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours']) == 0:
+                            episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp].remove(contour)
+                            if len(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]) == 0:
                                 del episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]
                             break
                     mask_show_callback(None, None, None)
             else:
                 exp = ''
                 for exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                    for contour in episodes[episode_idx-1]['frames'][frame_idx-1][exp]['contours']:
+                    for contour in episodes[episode_idx-1]['frames'][frame_idx-1][exp]:
                         if np.array_equal(contour, contours[0]):
-                            episodes[episode_idx-1]['frames'][frame_idx-1][exp]['contours'].remove(contour)
+                            episodes[episode_idx-1]['frames'][frame_idx-1][exp].remove(contour)
                             break
                         # set_mask(mask, filtered_mask, mode=='unfill')
-                if len(episodes[episode_idx-1]['frames'][frame_idx-1][exp]['contours']) == 0:
+                if len(episodes[episode_idx-1]['frames'][frame_idx-1][exp]) == 0:
                     del episodes[episode_idx-1]['frames'][frame_idx-1][exp]
                 mask_show_callback(None, None, None)
     else:   
@@ -535,10 +519,23 @@ def set_mask(data, mask, mode='fill'):
                     data[i, j] = mask[i, j]
                 else:  # just cause unfill is always used for mask
                     data[i, j] = np.array(MASK_BACKGROUND_COLOR)
+def contour_contains(contours, contour):
+    for c in contours:
+        if np.array_equal(c, contour):
+            return True
+    return False
 
 # key bind for episode and frame editing functions
 def key_event_handler(sender, app_data, user_data):
     # h,l for episode minus and plus, j,k for frame plus and minus, like vim motion bind keys
+    if DVC == 'WIN':
+        key_ctrl = 17
+    else:  # press linux LCtrl
+        key_ctrl = 341
+    if DVC == 'WIN':
+        key_esc = 27
+    else:  # press linux ESC
+        key_ctrl = 256
     if app_data in [ 72, 265 ]: # press h or w or up key 87 is w
         idx_callback(sender, app_data, ['minus', 'episodes'])
     elif app_data in [ 74, 262 ]: # press j or d or right key 68 is d
@@ -547,11 +544,9 @@ def key_event_handler(sender, app_data, user_data):
         idx_callback(sender, app_data, ['minus', 'frames'])
     elif app_data in [ 76, 264 ]: # press l or s or down key 83 is s
         idx_callback(sender, app_data, ['plus', 'episodes'])
-    elif app_data == 341:  # press linux LCtrl
-    # elif app_data == 17:  # press windows Ctrl
+    elif app_data == key_ctrl:  # press windows Ctrl
         ctrl_combo_key_callback()
-    elif app_data == 256: # press linux ESC
-    # elif app_data == 27: # press windows ESC
+    elif app_data == key_esc: # press windows ESC
         load_imgexpmasks()
         dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
         global selectable_item_exp
@@ -702,8 +697,10 @@ def main(args):
             
     # Shortcut mode
     with dpg.handler_registry(tag='key_event_handler'):
-        # dpg.add_key_press_handler(dpg.mvKey_Control, callback=key_event_handler, tag='bind_key_ctrl')
-        dpg.add_key_press_handler(dpg.mvKey_LControl, callback=key_event_handler, tag='bind_key_ctrl') # linux adaption
+        if DVC == 'WIN':
+            dpg.add_key_press_handler(dpg.mvKey_Control, callback=key_event_handler, tag='bind_key_ctrl')
+        else:
+            dpg.add_key_press_handler(dpg.mvKey_LControl, callback=key_event_handler, tag='bind_key_ctrl') # linux adaption
         dpg.add_key_press_handler(dpg.mvKey_H, callback=key_event_handler, tag='bind_key_h')
         dpg.add_key_press_handler(dpg.mvKey_J, callback=key_event_handler, tag='bind_key_j')
         dpg.add_key_press_handler(dpg.mvKey_K, callback=key_event_handler, tag='bind_key_k')
