@@ -10,10 +10,9 @@ import cv2
 import numpy as np
 from json import JSONEncoder
 import math
+import random
 
 # project packages imported
-from utils.episodes import Episodes
-
 
 # Global Constant and Variables
 DEFAULT_SPLIT = 'val_seen'
@@ -21,7 +20,8 @@ DEFAULT_SCENE = 3
 DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
 
-WIN_FACTOR = 1   # cause my windows has factor 1.5, so need to shrinke resolution
+# WIN_FACTOR = 1.25   # cause my windows has factor 1.5, so need to shrinke resolution  
+WIN_FACTOR = 1  # linux adaption
 WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / WIN_FACTOR), int(1050 / WIN_FACTOR), 3 / WIN_FACTOR
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
 
@@ -41,8 +41,9 @@ SEG_SIM_THRESHOLD = 4
 MULTILINE_WORD_COUNT = 14
 MASK_BACKGROUND_COLOR = [0, 0, 0]  # used for mask whose color is not black, and useful for mask and origin fusion
 MASK_FOREGROUND_COLOR = [255, 255, 255] # used for mask whose color is black, substitute black
-FUSION_FACTOR = 2
+FUSION_FACTOR = 0.5
 GRAY_THRESHOLD = 127
+COLORS = [[247,247,9], [34,109,221], [150,17,238], [56,247,9], [230,26,26]]
 
 episodes = None
 mouse_point = []
@@ -78,6 +79,17 @@ def load_json_callback(sender, app_data, user_data):
         load_json()
         idx_callback(sender, app_data, ['set', 'episodes', DEFAULT_EPISODE_IDX])
 def load_json():
+    def load_scene(split, scene):
+        root_path = Path(__file__).resolve().parent
+        anno_path = root_path / 'annotations'
+        scene_path = anno_path / split / (scene + '.json')
+        data = dict()
+        with scene_path.open(mode='r') as f:
+            data = json.load(f)
+        episodes = data['episodes']
+        for episode in episodes:
+            episode['len_frames'] = len(episode['reference_path'])
+        return episodes
     split = dpg.get_value('split')
     scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
     global save_split, save_scene
@@ -97,7 +109,7 @@ def load_json():
                 dpg.configure_item('loading_indicator_group', show=False)
             else:   # not file.close so no content in the json file
                 try:
-                    episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
+                    episodes = load_scene(split, scene)
                     dpg.configure_item('loading_indicator_group', show=False)
                 except:
                     episodes = None
@@ -105,8 +117,13 @@ def load_json():
                     dpg.configure_item('load_status_modal', show=True)
                     dpg.configure_item('loading_indicator_group', show=False)
     else:
+        # episodes = load_scene(split, scene)
+        # # with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
+        # #     json.dump({'episodes': episodes}, f, indent=4)
+        # dpg.configure_item('loading_indicator_group', show=False)
         try:
-            episodes = Episodes(save_split, scene=save_scene, only_json=True).get_episodes()
+            print('true')
+            episodes = load_scene(split, scene)
             # with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
             #     json.dump({'episodes': episodes}, f, indent=4)
             dpg.configure_item('loading_indicator_group', show=False)
@@ -336,7 +353,8 @@ def mask_show_callback(sender, app_data, user_data):
     if 'frames' in episodes[episode_idx-1]:
         frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
         if selectable_item_exp in frame_mask_dict:
-            color = frame_mask_dict[selectable_item_exp]['color']
+            # color = frame_mask_dict[selectable_item_exp]['color']
+            color = COLORS[random.randint(0, 4)]
             contours = frame_mask_dict[selectable_item_exp]['contours']
             # set_mask(raw_data_ori, mask_nparray)
             bk = np.zeros_like(raw_data_ori)
@@ -351,8 +369,11 @@ def eval_enable():
     with dpg.group(tag='exps_masked_sub', horizontal=True, parent='exps_masked'):
         if 'frames' in episodes[episode_idx-1]:
             frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
+            color_id = 0
+            ids = [0, 1, 2, 3, 4]
+            random.shuffle(ids)
             for exp, contour_dict in frame_mask_dict.items():
-                color = contour_dict['color']
+                color = COLORS[ids[color_id]]
                 contours = contour_dict['contours']
                 # set_mask(raw_data_ori, mask_nparray)
                 # raw_data_ori = cv2.addWeighted(raw_data_ori, 1, mask_nparray.astype(np.uint8), FUSION_FACTOR, 0)
@@ -361,6 +382,7 @@ def eval_enable():
                 bk = cv2.drawContours(bk, contours, -1, color, -1)
                 raw_data_ori = cv2.addWeighted(raw_data_ori, 1, bk.astype(np.uint8), FUSION_FACTOR, 0)
                 # raw_data_ori = cv2.drawContours(raw_data_ori, contours, -1, color, -1)
+                color_id += 1
         dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
 def mouse_event_handler(sender, data):
     global mouse_point
@@ -415,7 +437,7 @@ def mask_operation(mode):
                     # set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
                 else:
                     episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = dict()
-                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['color'] = color
+                    # episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['color'] = color
                     episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours'] = [contours[0]]
                     # episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
                 mask_show_callback(None, None, None)
@@ -525,10 +547,11 @@ def key_event_handler(sender, app_data, user_data):
         idx_callback(sender, app_data, ['minus', 'frames'])
     elif app_data in [ 76, 264 ]: # press l or s or down key 83 is s
         idx_callback(sender, app_data, ['plus', 'episodes'])
-    elif app_data == 341:  # press LCtrl
+    elif app_data == 341:  # press linux LCtrl
+    # elif app_data == 17:  # press windows Ctrl
         ctrl_combo_key_callback()
-    elif app_data == 256: # press ESC
-    # elif app_data == 27: # press ESC
+    elif app_data == 256: # press linux ESC
+    # elif app_data == 27: # press windows ESC
         load_imgexpmasks()
         dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
         global selectable_item_exp
@@ -559,7 +582,7 @@ def ctrl_combo_key_callback():
         toggle_theme(None, None, None, mode='dark')
     elif dpg.is_key_down(dpg.mvKey_T):  # light theme mode enable
         toggle_theme(None, None, None, mode='light')
-    dpg.set_value('shortcut', ' Shortcut: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
+    # dpg.set_value('shortcut', ' Shortcut: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 def toggle_bind_key():
     ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
     for i in ls:
@@ -567,7 +590,7 @@ def toggle_bind_key():
             dpg.configure_item('bind_key_' + i, callback=key_event_handler)
         else:
             dpg.configure_item('bind_key_' + i, callback=None)
-    dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
+    # dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 
 
 # scale callback function
@@ -679,7 +702,8 @@ def main(args):
             
     # Shortcut mode
     with dpg.handler_registry(tag='key_event_handler'):
-        dpg.add_key_press_handler(dpg.mvKey_LControl, callback=key_event_handler, tag='bind_key_ctrl')
+        # dpg.add_key_press_handler(dpg.mvKey_Control, callback=key_event_handler, tag='bind_key_ctrl')
+        dpg.add_key_press_handler(dpg.mvKey_LControl, callback=key_event_handler, tag='bind_key_ctrl') # linux adaption
         dpg.add_key_press_handler(dpg.mvKey_H, callback=key_event_handler, tag='bind_key_h')
         dpg.add_key_press_handler(dpg.mvKey_J, callback=key_event_handler, tag='bind_key_j')
         dpg.add_key_press_handler(dpg.mvKey_K, callback=key_event_handler, tag='bind_key_k')
@@ -868,7 +892,7 @@ def main(args):
             dpg.add_text('', tag='episode_id')
             dpg.add_text('', tag='trajectory_id')
             dpg.add_text('', tag='mouse_move')
-            dpg.add_text('Shortcut: enabled', tag='shortcut')
+            # dpg.add_text('Shortcut: enabled', tag='shortcut')
             dpg.add_text('Evaluation: disabled', tag='eval_mode_txt')
 
         # test component
