@@ -38,7 +38,7 @@ ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACT
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 
 SEG_SIM_THRESHOLD = 4
-MULTILINE_WORD_COUNT = 9
+MULTILINE_WORD_COUNT = 14
 MASK_BACKGROUND_COLOR = [0, 0, 0]  # used for mask whose color is not black, and useful for mask and origin fusion
 MASK_FOREGROUND_COLOR = [255, 255, 255] # used for mask whose color is black, substitute black
 FUSION_FACTOR = 2
@@ -281,7 +281,7 @@ def exps_operation(sender, app_data, user_data):
     def log():
         for id, exp in episodes[episode_idx-1]['expressions'].items():
             print(id, exp)
-    e_id, mode = int(user_data[0]), user_data[1]
+    e_id, mode = int(user_data[0]) if user_data[0] else user_data[0], user_data[1]
     episode_idx = int(dpg.get_value('episode_idx'))
     if mode == 'add':
         loc = user_data[2]
@@ -304,7 +304,7 @@ def exps_operation(sender, app_data, user_data):
         # log()
         exps_show_callback(sender, app_data, user_data)
     elif mode == 'upd':
-        episodes[episode_idx-1]['expressions'][e_id] = dpg.get_value(sender)
+        episodes[episode_idx-1]['expressions'][str(e_id)] = dpg.get_value(sender)
         upd_exps_dict_id()
         # log()
         # exps_show_callback(sender, app_data, user_data)
@@ -313,6 +313,10 @@ def exps_operation(sender, app_data, user_data):
         exps_show_callback(sender, app_data, user_data)
         # write_json()
         dpg.configure_item('pop_edit_panel', show=False)
+        for item in dpg.get_item_children('key_event_handler', 1):
+            dpg.set_item_callback(item, key_event_handler)
+        for item in dpg.get_item_children('mouse_event_handler', 1):
+            dpg.set_item_callback(item, mouse_event_handler)
 # expression selection function
 def exp_select_callback(sender, app_data, user_data):
     global selectable_item_exp
@@ -377,13 +381,11 @@ def mask_operation(mode):
             if 'frames' not in episodes[episode_idx-1]:
                 episodes[episode_idx-1]['frames'] = init_frames(episodes[episode_idx-1]['len_frames'])
             color = raw_data_seg[i, j].tolist()
-            # print(color)
             # substitute black by foreground color
             if np.array_equal(color, np.array(MASK_BACKGROUND_COLOR)):
                 filtered_mask = get_mask_by_graph(raw_data_seg, i, j, mode='subs')
             else:
                 filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
-            # print(filtered_mask)
             # mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
             # contours = measure.find_contours(mask_gray, 0.5, positive_orientation='low')
             # segmentations = []
@@ -400,7 +402,6 @@ def mask_operation(mode):
             # polygons.append(poly)
             # segmentation = np.array(poly.exterior.coords).ravel().tolist()
             # segmentations.append(segmentation)
-            # print(segmentations)
 
             mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
             _, thresh = cv2.threshold(mask_gray, GRAY_THRESHOLD, 255, 0)
@@ -514,7 +515,7 @@ def set_mask(data, mask, mode='fill'):
                     data[i, j] = np.array(MASK_BACKGROUND_COLOR)
 
 # key bind for episode and frame editing functions
-def keyboard_event_handler(sender, app_data, user_data):
+def key_event_handler(sender, app_data, user_data):
     # h,l for episode minus and plus, j,k for frame plus and minus, like vim motion bind keys
     if app_data in [ 72, 265 ]: # press h or w or up key 87 is w
         idx_callback(sender, app_data, ['minus', 'episodes'])
@@ -524,6 +525,8 @@ def keyboard_event_handler(sender, app_data, user_data):
         idx_callback(sender, app_data, ['minus', 'frames'])
     elif app_data in [ 76, 264 ]: # press l or s or down key 83 is s
         idx_callback(sender, app_data, ['plus', 'episodes'])
+    elif app_data == 341:  # press LCtrl
+        ctrl_combo_key_callback()
     elif app_data == 256: # press ESC
     # elif app_data == 27: # press ESC
         load_imgexpmasks()
@@ -533,11 +536,11 @@ def keyboard_event_handler(sender, app_data, user_data):
         exp_select_callback(None, None, None)
     else:
         print('Other key_id: {} pressed!'.format(app_data))
-def toggle_bind_key_callback():
+def ctrl_combo_key_callback():
     ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']  
     if dpg.is_key_down(dpg.mvKey_E):   # navigation shortcut mode enable
         for i in ls:
-            dpg.configure_item('bind_key_' + i, callback=keyboard_event_handler)
+            dpg.configure_item('bind_key_' + i, callback=key_event_handler)
     elif dpg.is_key_down(dpg.mvKey_D):  # navigation shortcut mode disalbe
         for i in ls:
             dpg.configure_item('bind_key_' + i, callback=None)
@@ -561,7 +564,7 @@ def toggle_bind_key():
     ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
     for i in ls:
         if dpg.get_item_callback('bind_key_' + i) is None:
-            dpg.configure_item('bind_key_' + i, callback=keyboard_event_handler)
+            dpg.configure_item('bind_key_' + i, callback=key_event_handler)
         else:
             dpg.configure_item('bind_key_' + i, callback=None)
     dpg.set_value('shortcut', ' Shortcut Mode: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
@@ -642,7 +645,11 @@ def init_frames(length):
     return frames
 # popup window for editting expressions callback function
 def popup_callback(sender, app_data, user_data):
-    print('popup callback')
+    dpg.configure_item('pop_edit_panel', show=True)
+    for item in dpg.get_item_children('key_event_handler', 1):
+        dpg.set_item_callback(item, None)
+    for item in dpg.get_item_children('mouse_event_handler', 1):
+        dpg.set_item_callback(item, None)
 class NumpyArrayEncoder(JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
@@ -671,21 +678,22 @@ def main(args):
     toggle_theme(None, None ,None, mode='light')
             
     # Shortcut mode
-    with dpg.handler_registry():
-        dpg.add_key_press_handler(dpg.mvKey_LControl, callback=toggle_bind_key_callback)
-        dpg.add_key_press_handler(dpg.mvKey_H, callback=keyboard_event_handler, tag='bind_key_h')
-        dpg.add_key_press_handler(dpg.mvKey_J, callback=keyboard_event_handler, tag='bind_key_j')
-        dpg.add_key_press_handler(dpg.mvKey_K, callback=keyboard_event_handler, tag='bind_key_k')
-        dpg.add_key_press_handler(dpg.mvKey_L, callback=keyboard_event_handler, tag='bind_key_l')
-        # dpg.add_key_press_handler(dpg.mvKey_W, callback=keyboard_event_handler, tag='bind_key_w')
-        # dpg.add_key_press_handler(dpg.mvKey_D, callback=keyboard_event_handler, tag='bind_key_d')
-        # dpg.add_key_press_handler(dpg.mvKey_A, callback=keyboard_event_handler, tag='bind_key_a')
-        # dpg.add_key_press_handler(dpg.mvKey_S, callback=keyboard_event_handler, tag='bind_key_s')
-        dpg.add_key_press_handler(dpg.mvKey_Up, callback=keyboard_event_handler, tag='bind_key_up')
-        dpg.add_key_press_handler(dpg.mvKey_Right, callback=keyboard_event_handler, tag='bind_key_right')
-        dpg.add_key_press_handler(dpg.mvKey_Left, callback=keyboard_event_handler, tag='bind_key_left')
-        dpg.add_key_press_handler(dpg.mvKey_Down, callback=keyboard_event_handler, tag='bind_key_down')
-        dpg.add_key_press_handler(dpg.mvKey_Escape, callback=keyboard_event_handler, tag='bind_key_esc')
+    with dpg.handler_registry(tag='key_event_handler'):
+        dpg.add_key_press_handler(dpg.mvKey_LControl, callback=key_event_handler, tag='bind_key_ctrl')
+        dpg.add_key_press_handler(dpg.mvKey_H, callback=key_event_handler, tag='bind_key_h')
+        dpg.add_key_press_handler(dpg.mvKey_J, callback=key_event_handler, tag='bind_key_j')
+        dpg.add_key_press_handler(dpg.mvKey_K, callback=key_event_handler, tag='bind_key_k')
+        dpg.add_key_press_handler(dpg.mvKey_L, callback=key_event_handler, tag='bind_key_l')
+        # dpg.add_key_press_handler(dpg.mvKey_W, callback=key_event_handler, tag='bind_key_w')
+        # dpg.add_key_press_handler(dpg.mvKey_D, callback=key_event_handler, tag='bind_key_d')
+        # dpg.add_key_press_handler(dpg.mvKey_A, callback=key_event_handler, tag='bind_key_a')
+        # dpg.add_key_press_handler(dpg.mvKey_S, callback=key_event_handler, tag='bind_key_s')
+        dpg.add_key_press_handler(dpg.mvKey_Up, callback=key_event_handler, tag='bind_key_up')
+        dpg.add_key_press_handler(dpg.mvKey_Right, callback=key_event_handler, tag='bind_key_right')
+        dpg.add_key_press_handler(dpg.mvKey_Left, callback=key_event_handler, tag='bind_key_left')
+        dpg.add_key_press_handler(dpg.mvKey_Down, callback=key_event_handler, tag='bind_key_down')
+        dpg.add_key_press_handler(dpg.mvKey_Escape, callback=key_event_handler, tag='bind_key_esc')
+    with dpg.handler_registry(tag='mouse_event_handler'):
         dpg.add_mouse_click_handler(tag='mouse_clicked_handler', callback=mouse_event_handler)
         dpg.add_mouse_double_click_handler(tag='mouse_doubelclicked_handler', callback=mouse_event_handler)
         dpg.add_mouse_move_handler(tag='mouse_move_handler', callback=mouse_event_handler)
@@ -801,17 +809,20 @@ def main(args):
                     dpg.add_text('已解析表达式(存在冗余或不准确)', color=(0, 255, 0))
                     dpg.add_button(label='编辑', tag='pop_up_edit_btn', callback=popup_callback)
                 # dpg.add_button(label='button', callback=popup_callback)
+                # saving status popup tooltip if failed
                 with dpg.popup('pop_up_edit_btn', modal=True, tag="save_status_modal", no_move=True):
                     dpg.add_text('', tag='save_status_txt', wrap=0)
                     with dpg.group(horizontal=True):
                         dpg.add_button(label="确认", width=75, tag='savecfmbtn', callback=lambda: dpg.configure_item("save_status_modal", show=False))
                         dpg.set_item_pos('savecfmbtn', [130, 80])
+                # loading status popup tooltip if failed
                 with dpg.popup('pop_up_edit_btn', modal=True, tag="load_status_modal", no_move=True):
                     dpg.add_text('', tag='load_status_txt')
                     with dpg.group(horizontal=True):
                         dpg.add_button(label="确认", width=75, tag='loadcfmbtn', callback=lambda: dpg.configure_item("load_status_modal", show=False))
                         dpg.set_item_pos('loadcfmbtn', [450, 80])
-                with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
+                # exp edit window
+                with dpg.window(modal=True, tag='pop_edit_panel', show=False):
                     with dpg.group(tag='pop_up_exps'):
                         dpg.add_input_text(default_value='', tag='ins_multiline', multiline=True, readonly=True, width=-1)
                         with dpg.group(tag='pop_up_exps_sub'):
@@ -822,6 +833,17 @@ def main(args):
                         # dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
                     # dpg.set_item_pos('pop_edit_panel', [780, 350])
                     dpg.set_item_pos('pop_edit_panel', [650, 250])
+                # with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
+                #     with dpg.group(tag='pop_up_exps'):
+                #         dpg.add_input_text(default_value='', tag='ins_multiline', multiline=True, readonly=True, width=-1)
+                #         with dpg.group(tag='pop_up_exps_sub'):
+                #             pass
+                #     dpg.add_separator()
+                #     with dpg.group(horizontal=True, tag='btnlist'):
+                #         dpg.add_button(label="确认", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
+                #         # dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
+                #     # dpg.set_item_pos('pop_edit_panel', [780, 350])
+                #     dpg.set_item_pos('pop_edit_panel', [650, 250])
                 with dpg.group(tag='exps'):
                     with dpg.group(tag='exps_sub'):
                         pass
