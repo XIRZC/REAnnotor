@@ -11,8 +11,6 @@ import numpy as np
 from json import JSONEncoder
 import math
 
-from regex import F
-
 # project packages imported
 from utils.episodes import Episodes
 
@@ -23,31 +21,35 @@ DEFAULT_SCENE = 3
 DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
 
-WIN_FACTOR = 1.25   # cause my windows has factor 1.5, so need to shrinke resolution
-WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / WIN_FACTOR), int(1000 / WIN_FACTOR), 3 / WIN_FACTOR
+WIN_FACTOR = 1   # cause my windows has factor 1.5, so need to shrinke resolution
+WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / WIN_FACTOR), int(1050 / WIN_FACTOR), 3 / WIN_FACTOR
 FRAME_WIDTH, FRAME_HEIGHT = 256, 144
 
 EXP_SCROLL_HEIGHT = 180 / WIN_FACTOR
+EXP_POPUP_SCROLL_HEIGHT = 250 / WIN_FACTOR
 INS_SCROLL_HEIGHT = 120 / WIN_FACTOR
 INST_SCROLL_HEIGHT = 100 / WIN_FACTOR
 
 ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y = 0, 75 / WIN_FACTOR
 SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y = 0, 515 / WIN_FACTOR
-STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 23 * math.pow(WIN_FACTOR, 4/3)
+STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 60 * math.pow(WIN_FACTOR, 4/3)
 
 ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, ORI_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 
-MASK_BY_COLOR = False
-USE_THRESHOLD = False
 SEG_SIM_THRESHOLD = 4
-MULTILINE_WORD_COUNT = 8
+MULTILINE_WORD_COUNT = 9
+MASK_BACKGROUND_COLOR = [0, 0, 0]  # used for mask whose color is not black, and useful for mask and origin fusion
+MASK_FOREGROUND_COLOR = [255, 255, 255] # used for mask whose color is black, substitute black
+FUSION_FACTOR = 2
+GRAY_THRESHOLD = 127
 
 episodes = None
 mouse_point = []
 selectable_item_exp, items = '', []
 raw_data_ori, raw_data_seg = [], []
 save_split, save_scene = -1, -1
+theme = 'light'
 
 
 # Json load and write functions
@@ -56,9 +58,8 @@ def write_json():
     with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
         try:
             dpg.configure_item('saving_indicator_group', show=True)
-            json.dump({'episodes': episodes}, f, indent=4, cls=NumpyArrayEncoder)
+            json.dump({'episodes': episodes}, f, cls=NumpyArrayEncoder)
             dpg.configure_item('saving_indicator_group', show=False)
-            print('Write to json file!')
             # dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
             # dpg.configure_item('save_status_modal', show=True)
         except:
@@ -130,31 +131,50 @@ def load_split_callback(sender, app_data):
 
 
 # load img and expression annotation function
-def load_imgexpmasks():
+def load_imgexpmasks(mode=''):
     global episodes
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
     ori_img_dir = Path('.').resolve() / 'data' / save_split / 'origin'
     seg_img_dir = Path('.').resolve() / 'data' / save_split / 'seg'
     trajectory_id = episodes[episode_idx-1]['trajectory_id']
     episode_id = episodes[episode_idx-1]['episode_id']
+
+    # load mask and convert to npndarray
+    # multidim python list -> nparray for show, add and delete
+    if 'frames' in episodes[episode_idx-1]:
+        for dic_key in episodes[episode_idx-1]['frames'][frame_idx-1]:
+            # episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
+            contours = episodes[episode_idx-1]['frames'][frame_idx-1][dic_key]['contours']
+            for i in range(len(contours)):
+                contours[i] = np.asarray(contours[i])
+
     # load pictures
     global raw_data_ori, raw_data_seg
+    # width, height, _, data_ori = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
+    #     int(scene), trajectory_id, episode_id, frame_idx-1))
+    ori_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
+        int(save_scene), trajectory_id, episode_id, frame_idx-1)
+    seg_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
+        int(save_scene), trajectory_id, episode_id, frame_idx-1)
     try:
-        # width, height, _, data_ori = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
-        #     int(scene), trajectory_id, episode_id, frame_idx-1))
-        ori_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
-            int(save_scene), trajectory_id, episode_id, frame_idx-1)
-        seg_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
-            int(save_scene), trajectory_id, episode_id, frame_idx-1)
         raw_data_ori = cv2.cvtColor(cv2.imread(ori_img_name), cv2.COLOR_BGR2RGB)
+    except:
+        dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
+        dpg.configure_item('load_status_modal', show=True)
+    if dpg.get_value('eval_mode_txt').split()[1] == 'enabled' and mode != 'single_show':
+        eval_enable()
+    else:
         dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
-        # _, _, _, data_seg = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
-        #     int(scene), trajectory_id, episode_id, frame_idx-1))
+    # _, _, _, data_seg = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
+    #     int(scene), trajectory_id, episode_id, frame_idx-1))
+    try:
         raw_data_seg = cv2.cvtColor(cv2.imread(seg_img_name), cv2.COLOR_BGR2RGB)
-        # print_img_data(raw_data_seg)
-        dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
-
-        # load exps
+    except:
+        dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
+        dpg.configure_item('load_status_modal', show=True)
+    dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
+    # load exps
+    try:
         with (ori_img_dir / '{:02d}_{}_{}'.format(int(save_scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
             exp = json.loads(f.read())
         dpg.set_value('instruction', exp['instruction'])
@@ -162,18 +182,11 @@ def load_imgexpmasks():
         # update expressions json data into episodes
         if 'expressions' not in episodes[episode_idx-1]:
             episodes[episode_idx-1]['expressions'] = exp['expressions']
-
-        # load mask and convert to npndarray
-        # multidim python list -> nparray for show, add and delete
-        if 'frames' in episodes[episode_idx-1]:
-            for dic_key in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
-        return  raw_data_ori, raw_data_seg, exp
     except:
-        episodes = None
         dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
         dpg.configure_item('load_status_modal', show=True)
-        return None, None, ''
+
+    return  raw_data_ori, raw_data_seg, exp
 
 
 # episode and frame idx editting callback function
@@ -236,22 +249,23 @@ def exps_show_callback(sender, app_data, user_data):
     for item in items:
         dpg.configure_item(item, callback=exp_select_callback)
     # update popup exps edit panel
+    if user_data:
+        ins = exp['instruction']
+        ins_multiline = ''
+        for i, ins_word in enumerate(ins.split()):
+            ins_multiline += ins_word + ' '
+            if (i + 1) % MULTILINE_WORD_COUNT == 0:
+                ins_multiline += '\n'
+        dpg.set_value('ins_multiline', ins_multiline)
     dpg.delete_item('pop_up_exps_sub')
     with dpg.group(tag='pop_up_exps_sub', parent='pop_up_exps'):
-        if user_data:
-            ins = exp['instruction']
-            ins_multiline = ''
-            for i, ins_word in enumerate(ins.split()):
-                ins_multiline += ins_word + ' '
-                if (i + 1) % MULTILINE_WORD_COUNT == 0:
-                    ins_multiline += '\n'
-            dpg.set_value('ins_multiline', ins_multiline)
-        for e_id, e in episodes[episode_idx-1]['expressions'].items():
-            with dpg.group(horizontal=True, tag=e_id):
-                dpg.add_input_text(default_value=e, tag=e_id+'input', user_data=[e_id, 'upd'], callback=exps_operation)
-                dpg.add_button(label='Add', tag=e_id+'addbtn', user_data=[e_id, 'add'], callback=exps_operation)
-                dpg.add_button(label='Delete', tag=e_id+'delbtn', user_data=[e_id, 'del'], callback=exps_operation)
-        dpg.add_text('注意：仅能在上方插入新的空表达式，编辑操作实时保存,可复制导航指令并在编辑框中粘贴', wrap=0, color=(255, 255, 0))
+        with dpg.child_window(height=EXP_POPUP_SCROLL_HEIGHT, width=450, delay_search=True, tag='exp_popup_scroll'):
+            dpg.add_text('注：所有编辑操作完成需保存,可复制粘贴', wrap=0, color=(255, 0, 0))
+            for e_id, e in episodes[episode_idx-1]['expressions'].items():
+                with dpg.group(horizontal=True, tag=e_id):
+                    dpg.add_input_text(default_value=e, tag=e_id+'input', user_data=[e_id, 'upd'], callback=exps_operation)
+                    dpg.add_button(label='插入', tag=e_id+'addbtn', user_data=[e_id, 'add'], callback=exps_operation)
+                    dpg.add_button(label='删除', tag=e_id+'delbtn', user_data=[e_id, 'del'], callback=exps_operation)
 def exps_operation(sender, app_data, user_data):
     def upd_exps_dict_id():
         n_dic = dict()
@@ -263,9 +277,6 @@ def exps_operation(sender, app_data, user_data):
         v_j = dic[j]
         dic[i] = v_j
         dic[j] = v_i
-    # def log():
-    #     for i in episodes[episode_idx-1]['expressions']:
-    #         print(type(i), i)
     e_id, mode = user_data[0], user_data[1]
     episode_idx = int(dpg.get_value('episode_idx'))
     if mode == 'add':
@@ -301,20 +312,43 @@ def exp_select_callback(sender, app_data, user_data):
             dpg.set_value(item, False)
         else:
             selectable_item_exp = dpg.get_item_configuration(sender)['label']
-            print('Now Selected exp are: ', selectable_item_exp)
             mask_show_callback(sender, app_data, user_data)
 
 
 # mouse action and mask operation function and mask show callback
 def mask_show_callback(sender, app_data, user_data):
+    global raw_data_ori
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
-    load_imgexpmasks()
+    load_imgexpmasks('single_show')
     if 'frames' in episodes[episode_idx-1]:
         frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
         if selectable_item_exp in frame_mask_dict:
-            mask_nparray = frame_mask_dict[selectable_item_exp]
-            set_mask(raw_data_ori, mask_nparray)
+            color = frame_mask_dict[selectable_item_exp]['color']
+            contours = frame_mask_dict[selectable_item_exp]['contours']
+            # set_mask(raw_data_ori, mask_nparray)
+            bk = np.zeros_like(raw_data_ori)
+            bk = cv2.drawContours(bk, contours, -1, color, -1)
+            raw_data_ori = cv2.addWeighted(raw_data_ori, 1, bk.astype(np.uint8), FUSION_FACTOR, 0)
+            # raw_data_ori = cv2.drawContours(raw_data_ori, contours, -1, color, -1)
             dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
+def eval_enable():
+    global raw_data_ori
+    episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
+    dpg.delete_item('exps_masked_sub')
+    with dpg.group(tag='exps_masked_sub', horizontal=True, parent='exps_masked'):
+        if 'frames' in episodes[episode_idx-1]:
+            frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
+            for exp, contour_dict in frame_mask_dict.items():
+                color = contour_dict['color']
+                contours = contour_dict['contours']
+                # set_mask(raw_data_ori, mask_nparray)
+                # raw_data_ori = cv2.addWeighted(raw_data_ori, 1, mask_nparray.astype(np.uint8), FUSION_FACTOR, 0)
+                dpg.add_text(exp, color=color)
+                bk = np.zeros_like(raw_data_ori)
+                bk = cv2.drawContours(bk, contours, -1, color, -1)
+                raw_data_ori = cv2.addWeighted(raw_data_ori, 1, bk.astype(np.uint8), FUSION_FACTOR, 0)
+                # raw_data_ori = cv2.drawContours(raw_data_ori, contours, -1, color, -1)
+        dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
 def mouse_event_handler(sender, data):
     global mouse_point
     type = dpg.get_item_info(sender)["type"]
@@ -333,41 +367,80 @@ def mask_operation(mode):
             print('Clicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
             if 'frames' not in episodes[episode_idx-1]:
                 episodes[episode_idx-1]['frames'] = init_frames(episodes[episode_idx-1]['len_frames'])
-            if MASK_BY_COLOR:
-                filtered_mask = get_mask_by_color(raw_data_seg, i, j)
+            color = raw_data_seg[i, j].tolist()
+            # print(color)
+            # substitute black by foreground color
+            if np.array_equal(color, np.array(MASK_BACKGROUND_COLOR)):
+                filtered_mask = get_mask_by_graph(raw_data_seg, i, j, mode='subs')
             else:
                 filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
+            # print(filtered_mask)
+            # mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
+            # contours = measure.find_contours(mask_gray, 0.5, positive_orientation='low')
+            # segmentations = []
+            # polygons = []
+            # for contour in contours:
+            #     # Flip from (row, col) representation to (x, y)
+            #     # and subtract the padding pixel
+            #     for i in range(len(contour)):
+            #         row, col = contour[i]
+            #         contour[i] = (col - 1, row - 1)
+            # # Make a polygon and simplify it
+            # poly = Polygon(contour)
+            # poly = poly.simplify(1.0, preserve_topology=False)
+            # polygons.append(poly)
+            # segmentation = np.array(poly.exterior.coords).ravel().tolist()
+            # segmentations.append(segmentation)
+            # print(segmentations)
+
+            mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
+            _, thresh = cv2.threshold(mask_gray, GRAY_THRESHOLD, 255, 0)
+            contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            # cv2.imwrite('polyimage.jpg', cv2.drawContours(filtered_mask, [contours[0]], 0, (0, 255, 255), -1))
+
             # dpg.set_value('ori_frame', set_mask_for_ori(raw_data_ori, filtered_mask).astype(np.float32) / 255)
             if selectable_item_exp != '':
                 if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                    set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
+                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours'].append(contours[0])
+                    # set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask)
                 else:
-                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
+                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = dict()
+                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['color'] = color
+                    episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours'] = [contours[0]]
+                    # episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
                 mask_show_callback(None, None, None)
     elif mode == 'del':
         if boundary(mouse_point, ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y, ORI_FRAME_END_X, ORI_FRAME_END_Y):
             i, j = restore(mouse_point, 'ori')
             print('DoubleClicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
-            if MASK_BY_COLOR:
-                filtered_mask = get_mask_by_color(raw_data_seg, i, j)
-            else:
-                filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
+            filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
+            mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
+            _, thresh = cv2.threshold(mask_gray, GRAY_THRESHOLD, 255, 0)
+            contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             if selectable_item_exp != '':
-                if 'frames' in episodes[episode_idx-1]:
-                    if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                        set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask, mode=='unfill')
-                        mask_show_callback(None, None, None)
+                if selectable_item_exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                    # set_mask(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp], filtered_mask, mode=='unfill')
+                    for contour in episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours']:
+                        if np.array_equal(contour, contours[0]):
+                            episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours'].remove(contour)
+                            if len(episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]['contours']) == 0:
+                                del episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]
+                            break
+                    mask_show_callback(None, None, None)
+            else:
+                exp = ''
+                for exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                    for contour in episodes[episode_idx-1]['frames'][frame_idx-1][exp]['contours']:
+                        if np.array_equal(contour, contours[0]):
+                            episodes[episode_idx-1]['frames'][frame_idx-1][exp]['contours'].remove(contour)
+                            break
+                        # set_mask(mask, filtered_mask, mode=='unfill')
+                if len(episodes[episode_idx-1]['frames'][frame_idx-1][exp]['contours']) == 0:
+                    del episodes[episode_idx-1]['frames'][frame_idx-1][exp]
+                mask_show_callback(None, None, None)
     else:   
         pass
-def get_mask_by_color(data, i, j):
-    point = data[i, j]
-    fill = np.zeros_like(data)
-    for a in range(FRAME_HEIGHT):
-        for b in range(FRAME_WIDTH):
-            if threshold(data[a, b], point, SEG_SIM_THRESHOLD):
-                fill[a, b] = point
-    return fill
-def get_mask_by_graph(data, i, j):
+def get_mask_by_graph(data, i, j, mode=''):
     def bfs(data, i, j):
         import queue
         fill = np.zeros_like(data)
@@ -381,57 +454,99 @@ def get_mask_by_graph(data, i, j):
             for k in range(len(di)):
                 ni, nj = i + di[k], j + dj[k]
                 if boundary((ni, nj), 0, 0, FRAME_HEIGHT, FRAME_WIDTH):
-                    if USE_THRESHOLD:
-                        condition = threshold(data[ni, nj], data[i, j], SEG_SIM_THRESHOLD)
-                    else:
-                        condition = np.array_equal(data[ni, nj], data[i, j])
-                    if condition:
+                    if np.array_equal(data[ni, nj], data[i, j]):
                         if np.array_equal(fill[ni, nj], np.zeros(3)):
                             fill[ni, nj] = point
                             q.put((ni, nj))
+        for i in range(FRAME_HEIGHT):
+            for j in range(FRAME_WIDTH):
+                if np.array_equal(fill[i, j], np.zeros(3)):
+                    fill[i, j] = np.array(MASK_BACKGROUND_COLOR)
+                else:
+                    fill[i, j] = np.array(MASK_FOREGROUND_COLOR)
         return fill
-    fill = bfs(data, i, j)
+    def bfs_subs(data, i, j):
+        import queue
+        fill = np.ones_like(data)
+        point = data[i, j]
+        di, dj = [1, 0, -1, 0], [0, 1, 0, -1]  # adajecent nodes: down, right, up, left
+        q = queue.Queue()
+        q.put((i, j))
+        fill[i, j] = point
+        while not q.empty():
+            i, j = q.get()
+            for k in range(len(di)):
+                ni, nj = i + di[k], j + dj[k]
+                if boundary((ni, nj), 0, 0, FRAME_HEIGHT, FRAME_WIDTH):
+                    if np.array_equal(data[ni, nj], data[i, j]):
+                        if np.array_equal(fill[ni, nj], np.ones(3)):
+                            fill[ni, nj] = point
+                            q.put((ni, nj))
+        for i in range(FRAME_HEIGHT):
+            for j in range(FRAME_WIDTH):
+                if np.array_equal(fill[i, j], np.ones(3)):
+                    fill[i, j] = np.array(MASK_BACKGROUND_COLOR)
+                # substitute black by foreground color
+                else:
+                    fill[i, j] = np.array(MASK_FOREGROUND_COLOR)
+        return fill
+    if mode == 'subs':
+        fill = bfs_subs(data, i, j)
+    else:
+        fill = bfs(data, i, j)
     return fill
 def set_mask(data, mask, mode='fill'):
     for i in range(FRAME_HEIGHT):
         for j in range(FRAME_WIDTH):
-            if not np.array_equal(mask[i, j], np.zeros(3)):
+            if not np.array_equal(mask[i, j], np.array(MASK_BACKGROUND_COLOR)):
                 if mode == 'fill':
                     data[i, j] = mask[i, j]
                 else:  # just cause unfill is always used for mask
-                    data[i, j] = np.zeros(3)
-
+                    data[i, j] = np.array(MASK_BACKGROUND_COLOR)
 
 # key bind for episode and frame editing functions
 def keyboard_event_handler(sender, app_data, user_data):
     # h,l for episode minus and plus, j,k for frame plus and minus, like vim motion bind keys
-    if app_data in [ 72, 87, 265 ]: # press h or w or up key
+    if app_data in [ 72, 265 ]: # press h or w or up key 87 is w
         idx_callback(sender, app_data, ['minus', 'episodes'])
-    elif app_data in [ 74, 68, 262 ]: # press j or d or right key
+    elif app_data in [ 74, 262 ]: # press j or d or right key 68 is d
         idx_callback(sender, app_data, ['plus', 'frames'])
-    elif app_data in [ 75, 65, 263 ]: # press k or a or left key
+    elif app_data in [ 75, 263 ]: # press k or a or left key 65 is a
         idx_callback(sender, app_data, ['minus', 'frames'])
-    elif app_data in [ 76, 83, 264 ]: # press l or s or down key
+    elif app_data in [ 76, 264 ]: # press l or s or down key 83 is s
         idx_callback(sender, app_data, ['plus', 'episodes'])
     elif app_data == 256: # press ESC
+    # elif app_data == 27: # press ESC
         load_imgexpmasks()
         dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
+        global selectable_item_exp
         selectable_item_exp = ''
         exp_select_callback(None, None, None)
     else:
         print('Other key_id: {} pressed!'.format(app_data))
 def toggle_bind_key_callback():
-    ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
-    if dpg.is_key_down(dpg.mvKey_E):
-        # print('Press Ctrl E!', dpg.get_item_callback('bind_key_h'))
+    ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']  
+    if dpg.is_key_down(dpg.mvKey_E):   # navigation shortcut mode enable
         for i in ls:
             dpg.configure_item('bind_key_' + i, callback=keyboard_event_handler)
-    elif dpg.is_key_down(dpg.mvKey_D):
-        # print('Press Ctrl D!', dpg.get_item_callback('bind_key_h'))
+    elif dpg.is_key_down(dpg.mvKey_D):  # navigation shortcut mode disalbe
         for i in ls:
             dpg.configure_item('bind_key_' + i, callback=None)
     elif dpg.is_key_down(dpg.mvKey_S):
         write_json()
+    elif dpg.is_key_down(dpg.mvKey_W): # evaluation or check mode enable
+        dpg.set_value('eval_mode_txt', 'Evaluation: enabled')
+        load_imgexpmasks()
+    elif dpg.is_key_down(dpg.mvKey_Q): # evaluation or check mode disable
+        dpg.set_value('eval_mode_txt', 'Evaluation: disabled')
+        dpg.delete_item('exps_masked_sub')
+        with dpg.group(tag='exps_masked_sub', parent='exps_masked', horizontal=True):
+            pass
+        load_imgexpmasks()
+    elif dpg.is_key_down(dpg.mvKey_R):  # dark theme mode enable
+        toggle_theme(None, None, None, mode='dark')
+    elif dpg.is_key_down(dpg.mvKey_T):  # light theme mode enable
+        toggle_theme(None, None, None, mode='light')
     dpg.set_value('shortcut', ' Shortcut: '+('enabled' if dpg.get_item_callback('bind_key_h') else 'disabled'))
 def toggle_bind_key():
     ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']
@@ -446,13 +561,13 @@ def toggle_bind_key():
 # scale callback function
 def scale_callback(sender, app_data, user_data):
     scale = dpg.get_value(sender)
-    # print(scale)
 
     global WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR
     WINDOW_WIDTH, WINDOW_HEIGHT, FRAME_FACTOR = int(1650 / scale), int(1050 / scale), 3 / scale
 
     global EXP_SCROLL_HEIGHT, INS_SCROLL_HEIGHT, INST_SCROLL_HEIGHT
     EXP_SCROLL_HEIGHT = 180 / scale
+    EXP_POPUP_SCROLL_HEIGHT = 250 / scale
     INS_SCROLL_HEIGHT = 120 / scale
     INST_SCROLL_HEIGHT = 100 / scale
 
@@ -465,13 +580,14 @@ def scale_callback(sender, app_data, user_data):
 
     global STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y
 
-    STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 23 * math.pow(scale, 4/3)
+    STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y = 5, WINDOW_HEIGHT - 60 * math.pow(scale, 4/3)
 
     # set window and item size and pos
     dpg.set_viewport_height(WINDOW_HEIGHT)
     dpg.set_viewport_width(WINDOW_WIDTH)
     dpg.configure_item('main_window', width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
     dpg.configure_item('exp_scroll', height=EXP_SCROLL_HEIGHT)
+    dpg.configure_item('exp_popup_scroll', height=EXP_POPUP_SCROLL_HEIGHT)
     dpg.configure_item('ins_scroll', height=INS_SCROLL_HEIGHT)
     dpg.configure_item('inst_scroll', height=INST_SCROLL_HEIGHT)
     dpg.configure_item('ori_frame_img', pos=[ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y], width=FRAME_WIDTH*FRAME_FACTOR, height=FRAME_HEIGHT*FRAME_FACTOR)
@@ -479,16 +595,28 @@ def scale_callback(sender, app_data, user_data):
     dpg.configure_item('statusbar', pos=[STATUS_BAR_OFFSET_X, STATUS_BAR_OFFSET_Y])
 
 
+# toggle theme
+def toggle_theme(sender, app_data, user_data, mode=''):
+    global theme
+    from dearpygui_ext.themes import create_theme_imgui_light, create_theme_imgui_dark
+    light_theme = create_theme_imgui_light()
+    dark_theme = create_theme_imgui_dark()
+    if not mode:
+        if theme == 'light':
+            dpg.bind_theme(dark_theme)
+            theme = 'dark'
+        else:
+            dpg.bind_theme(light_theme)
+            theme = 'light'
+    else:
+        dpg.bind_theme(light_theme if mode == 'light' else dark_theme)
+
+
 # util functions
 def boundary(p, ltx, lty, rbx, rby):
     if (p[0] >= ltx and p[0] < rbx) and (p[1] >= lty and p[1] < rby):
         return True
     return False
-def threshold(src, dst, th):
-    for i in range(len(src)):
-        if abs(src[i]-dst[i]) > th:
-            return False
-    return True
 def restore(p, mode):
     if mode == 'seg':
         return [int((p[1] - SEG_FRAME_OFFSET_Y) // FRAME_FACTOR), int((p[0] - SEG_FRAME_OFFSET_X) // FRAME_FACTOR)]
@@ -529,6 +657,9 @@ def main(args):
             #        mvFontRangeHint_Chinese_Simplified_Common
             dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Simplified_Common)
             dpg.add_font_range_hint(dpg.mvFontRangeHint_Chinese_Full)
+
+    # theme setting
+    toggle_theme(None, None ,None, mode='light')
             
     # Shortcut mode
     with dpg.handler_registry():
@@ -574,6 +705,7 @@ def main(args):
             with dpg.menu(label="Settings"):
                 dpg.add_menu_item(label="Toggle Fullscreen", callback=lambda:dpg.toggle_viewport_fullscreen())
                 dpg.add_menu_item(label="Toggle Shortcut Key for episode and frame", callback=toggle_bind_key)
+                dpg.add_menu_item(label="Toggle Light/Dark Theme", callback=toggle_theme)
                 dpg.add_slider_float(label="Window scale factor", min_value=1.0, max_value=1.5, callback=scale_callback, default_value=1.25, format='%.2f')
 
 
@@ -679,10 +811,14 @@ def main(args):
                     with dpg.group(horizontal=True, tag='btnlist'):
                         dpg.add_button(label="保存", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
                         dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
-                    dpg.set_item_pos('pop_edit_panel', [780, 350])
+                    # dpg.set_item_pos('pop_edit_panel', [780, 350])
+                    dpg.set_item_pos('pop_edit_panel', [650, 250])
                 with dpg.group(tag='exps'):
                     with dpg.group(tag='exps_sub'):
                         pass
+                    with dpg.group(tag='exps_masked', horizontal=True):
+                        with dpg.group(tag='exps_masked_sub', horizontal=True):
+                            pass
                 # Operating logs
                 # dpg.add_text("操作日志：")
 
@@ -702,6 +838,9 @@ def main(args):
             dpg.add_text('', tag='trajectory_id')
             dpg.add_text('', tag='mouse_move')
             dpg.add_text('Shortcut: enabled', tag='shortcut')
+            dpg.add_text('Evaluation: disabled', tag='eval_mode_txt')
+
+        # test component
         
         # load_json_callback for default split, scene, episode_idx, frame_idx
         load_json_callback(None, None, None)
