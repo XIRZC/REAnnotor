@@ -14,7 +14,7 @@ from nltk.tree import *
 from stanfordcorenlp import StanfordCoreNLP
 
 # Global Variables
-STANFORDCORENLP_PATH = r'/home/mrxir/stanford-corenlp-4.4.0'
+STANFORDCORENLP_PATH = r'/home/B/xiezc/stanford-corenlp-4.4.0'
 
 class Episodes(object):
 
@@ -151,7 +151,7 @@ class Episodes(object):
     def get_frame(self):
 
         responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.Scene, False, False), 
-                airsim.ImageRequest("0", airsim.ImageType.Segmentation, False, False)])
+                airsim.ImageRequest("0", airsim.ImageType.Segmentation)])
         imgs = []
         for idx, response in enumerate(responses):
             if response.pixels_as_float:
@@ -260,6 +260,7 @@ class Episodes(object):
         return r
 
 
+
     def fly_by_trajectory(self, split, episode, save_path, filt, only_json):
         # split_dir = Path(save_path) / split / 'JPEGImages'
         split_dir = Path(save_path) / split
@@ -302,13 +303,16 @@ class Episodes(object):
             for i, pos in enumerate(npath):
                 frame_origin_name = save_origin_dir / "{:03d}.jpg".format(i)
                 frame_seg_name = save_seg_dir / "{:03d}.jpg".format(i)
+                # avoid repetitive loading and save images
+                if frame_origin_name.exists() and frame_seg_name.exists():
+                    continue
 
                 if not only_json:
                     self.client.simSetVehiclePose(pos, True)
                     frame = self.get_frame()
                     if save_path:
                         airsim.write_png(os.path.normpath(str(frame_origin_name)), frame[0]) 
-                        airsim.write_png(os.path.normpath(str(frame_seg_name)), frame[1]) 
+                        airsim.write_file(os.path.normpath(str(frame_seg_name)), frame[1]) 
                 frames.append(frame_origin_name.name[:-4])
 
             print('Over!!')
@@ -331,7 +335,7 @@ class Episodes(object):
                 json.dump(metas, f, indent=4)
             with (Path(save_seg_dir) / 'expressions.json').open(mode='w+') as f:
                 json.dump(metas, f, indent=4)
-            return frames, RES, save_origin_dir.name
+            return frames, RES, instruction, instruction_translated, save_origin_dir.name
         else:
             return None, None, None
 
@@ -350,10 +354,21 @@ class Episodes(object):
             episode = self.episodes[random.randint(0, length-1)]
             self.fly_by_trajectory(self.split, episode, save_path=save_path, filt=filt, only_json=only_json)
         else:
-            for episode in self.episodes:
-                FRAMES, RES, vid_name = self.fly_by_trajectory(self.split, episode, save_path=save_path, filt=filt, only_json=only_json)
-                instruction = episode['instruction']['instruction_text']
-                instruction_translated = self.translate(instruction)
+            split_dir = Path(save_path) / split
+            episodes_len = len(self.episodes)
+            for i, episode in enumerate(self.episodes):
+                print('------------------------------------------')
+                print('Saving Progress: {}/{} | Percentage: {:.2f}%'.format(i+1, episodes_len, (i+1) * 100 / episodes_len))
+                epi_id = episode['episode_id']
+                tra_id = episode['trajectory_id']
+                sce_id = episode['scene_id']
+                save_origin_end_path = split_dir /  'origin' / '{:02d}_{}_{}'.format(sce_id, tra_id, epi_id) / 'expressions.json'
+                # avoid repetitive loading and saving
+                if save_origin_end_path.exists():
+                    continue
+                FRAMES, RES, instruction, instruction_translated, vid_name = self.fly_by_trajectory(self.split, episode, save_path=save_path, filt=filt, only_json=only_json)
+                # instruction = episode['instruction']['instruction_text']
+                # instruction_translated = self.translate(instruction)
                 if FRAMES is None:
                     continue
                 res = dict()
@@ -367,10 +382,10 @@ class Episodes(object):
                 metas['videos'][vid_name]['frames'] = FRAMES
                 metas['videos'][vid_name]['episode_id'] = episode['episode_id']
                 metas['videos'][vid_name]['trajectory_id'] = episode['trajectory_id']
-                metas['videos'][vid_name]['scene_id'] = str(episode['scene'])
+                metas['videos'][vid_name]['scene_id'] = str(episode['scene_id'])
 
         if save_path:
-           with (Path(save_path) / split / 'meta_expressions.json').open(mode='w+') as f:
+           with (Path(save_path) / split / 'meta_expressions.json').open(mode='a+') as f:
                 json.dump(metas, f, indent=4)
 
 
@@ -388,9 +403,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     episodes = Episodes(args.split, args.scene, args.json)
-    # episodes.run(args.split, args.oneturn, args.save_path, args.filt, args.json)
+    episodes.run(args.split, args.oneturn, args.save_path, args.filt, args.json)
     # episode = episodes.get_rand_episode(random.randint(0, len(episodes)))
     # episode = episodes.get_rand_episode(8)
-    epis = episodes.get_episodes()
-    for epi in epis:
-        print(len(epi['reference_path']))

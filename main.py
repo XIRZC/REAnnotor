@@ -15,7 +15,7 @@ import random
 
 # project packages imported
 
-DVC = 'Linux'
+DVC = 'WIN'
 
 # Global Constant and Variables
 DEFAULT_SPLIT = 'val_seen'
@@ -1046,7 +1046,7 @@ def main(args):
                     dpg.add_separator()
                     with dpg.group(horizontal=True, tag='btnlist'):
                         dpg.add_button(label="确认", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
-                        if DVC == 'Win':
+                        if DVC == 'WIN':
                             dpg.set_item_pos('savebtn', [250, 420])
                     dpg.set_item_pos('exp_edit_panel', [650, 250])
                 with dpg.group(tag='exps'):
@@ -1057,15 +1057,15 @@ def main(args):
                             pass
                 # comment panel
                 with dpg.group(horizontal=True, show=False, tag='comment_panel'):
-                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', readonly=True, tag='hint_txt', width=700)
+                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', readonly=True, tag='hint_txt', width=500)
                     dpg.add_button(label='编辑', callback=popup_callback, user_data='comment')
                 with dpg.window(modal=True, tag='comment_edit_panel', show=False):
-                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', tag='comment_txt', callback=eval_callback, user_data='comment', width=700)
+                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', tag='comment_txt', callback=eval_callback, user_data='comment', width=500)
                     dpg.add_separator()
                     with dpg.group(horizontal=True, tag='evalbtnlist'):
                         dpg.add_button(label="确认", width=75, tag='evalsavebtn', user_data='save', callback=eval_callback, parent='evalbtnlist')
-                        if DVC == 'Win':
-                            dpg.set_item_pos('evalsavebtn', [250, 420])
+                        if DVC == 'WIN':
+                            dpg.set_item_pos('evalsavebtn', [220, 70])
                     dpg.set_item_pos('comment_edit_panel', [650, 250])
                 # Operating logs
                 # dpg.add_text("操作日志：")
