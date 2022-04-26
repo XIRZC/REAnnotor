@@ -388,6 +388,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     episodes = Episodes(args.split, args.scene, args.json)
-    episodes.run(args.split, args.oneturn, args.save_path, args.filt, args.json)
+    # episodes.run(args.split, args.oneturn, args.save_path, args.filt, args.json)
     # episode = episodes.get_rand_episode(random.randint(0, len(episodes)))
     # episode = episodes.get_rand_episode(8)
+    epis = episodes.get_episodes()
+    for epi in epis:
+        print(len(epi['reference_path']))

@@ -1,6 +1,7 @@
 # author: mrxirzzz
 
 # internal packages imported
+from logging import PlaceHolder
 import dearpygui.dearpygui as dpg
 import os
 import argparse
@@ -14,7 +15,7 @@ import random
 
 # project packages imported
 
-DVC = 'WIN'
+DVC = 'Linux'
 
 # Global Constant and Variables
 DEFAULT_SPLIT = 'val_seen'
@@ -42,12 +43,14 @@ ORI_FRAME_END_X, ORI_FRAME_END_Y = ORI_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACT
 SEG_FRAME_END_X, SEG_FRAME_END_Y = SEG_FRAME_OFFSET_X + FRAME_WIDTH * FRAME_FACTOR, SEG_FRAME_OFFSET_Y + FRAME_HEIGHT * FRAME_FACTOR
 
 SEG_SIM_THRESHOLD = 4
-MULTILINE_WORD_COUNT = 14
+MULTILINE_WORD_COUNT = 12
 MASK_BACKGROUND_COLOR = [0, 0, 0]  # used for mask whose color is not black, and useful for mask and origin fusion
 MASK_FOREGROUND_COLOR = [255, 255, 255] # used for mask whose color is black, substitute black
 FUSION_FACTOR = 0.5
 GRAY_THRESHOLD = 127
 COLORS = [[247,247,9], [34,109,221], [150,17,238], [56,247,9], [230,26,26]]
+EVAL_RANDOM_PERCENT = 0.1
+EVAL_SUCCESS_PERCENT = 0.8
 
 episodes = None
 mouse_point = []
@@ -60,28 +63,69 @@ theme = 'light'
 # Json load and write functions
 def write_json():
     global episodes
-    with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
-        try:
+    if dpg.get_value('real_eval_mode_txt').split()[1] == 'disabled':
+        with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
+            try:
+                dpg.configure_item('saving_indicator_group', show=True)
+                json.dump({'episodes': episodes}, f, cls=NumpyArrayEncoder)
+                dpg.configure_item('saving_indicator_group', show=False)
+                # dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
+                # dpg.configure_item('save_status_modal', show=True)
+            except:
+                episodes = None
+                dpg.configure_item('saving_indicator_group', show=False)
+                dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json failed!'.format(save_split, save_scene))
+                dpg.configure_item('save_status_modal', show=True)
+    else:
+        with open('annotations/{}/{}_eval.json'.format(save_split, save_scene), mode='w+') as f:
+            n_episodes = []
+            yes_cnt = 0
+            for episode in episodes:
+                # print(episode)
+                n_episode = dict()
+                n_episode['episode_id'] = episode['episode_id']
+                if 'evaluation' in episode:
+                    if episode['evaluation'] == 'Yes':
+                        yes_cnt += 1
+                    n_episode['evaluation'] = episode['evaluation']
+                n_episode['frames'] = init_frames(episode['len_frames'])
+                for i in range(episode['len_frames']):
+                    if 'commentable' in episode['frames'][i]:
+                        n_episode['frames'][i]['commentable'] = episode['frames'][i]['commentable']
+                n_episodes.append(n_episode)
+            final_dic = dict() 
+            final_dic['pass_rate'] = '{:.2f}%'.format(yes_cnt * 100 / len(n_episodes))
+            final_dic['episodes'] = n_episodes
             dpg.configure_item('saving_indicator_group', show=True)
-            json.dump({'episodes': episodes}, f, cls=NumpyArrayEncoder)
+            json.dump(final_dic, f, cls=NumpyArrayEncoder)
             dpg.configure_item('saving_indicator_group', show=False)
-            # dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
-            # dpg.configure_item('save_status_modal', show=True)
-        except:
-            episodes = None
-            dpg.configure_item('saving_indicator_group', show=False)
-            dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json failed!'.format(save_split, save_scene))
-            dpg.configure_item('save_status_modal', show=True)
+            # try:
+            #     # dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json success!'.format(save_split, save_scene))
+            #     # dpg.configure_item('save_status_modal', show=True)
+            # except:
+            #     dpg.configure_item('saving_indicator_group', show=False)
+            #     dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_eval.json failed!'.format(save_split, save_scene))
+            #     dpg.configure_item('save_status_modal', show=True)
 def load_json_callback(sender, app_data, user_data):
-    if sender is not None:
+    if sender is None: # manually invoke
+        load_json()
+        idx_callback(sender, app_data, ['set', 'episodes', DEFAULT_EPISODE_IDX])
+    elif dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
+        # write_json()
+        dpg.set_value('real_eval_mode_txt', 'Evaluation: disabled')
+        dpg.configure_item('yes_btn', show=False)
+        dpg.configure_item('or_txt', show=False)
+        dpg.configure_item('no_btn', show=False)
+        dpg.configure_item('yes_or_no', show=False)
+        dpg.configure_item('comment_panel', show=False)
+        load_json()
+        idx_callback(sender, app_data, ['set', 'episodes', 1])
+    else:  
         # save all the staged episodes operations
         write_json()
         # load new json to episodes and generate new file IO object
         load_json()
         idx_callback(sender, app_data, ['set', 'episodes', 1])
-    else:  # manually invoke
-        load_json()
-        idx_callback(sender, app_data, ['set', 'episodes', DEFAULT_EPISODE_IDX])
 def load_json():
     def load_scene(split, scene):
         root_path = Path(__file__).resolve().parent
@@ -107,9 +151,9 @@ def load_json():
     dpg.configure_item('loading_indicator_group', show=True)
     if os.path.exists('annotations/{}/{}_seg.json'.format(save_split, save_scene)):
         with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='r') as f:
-            content = json.loads(f.read())['episodes']
+            content = json.loads(f.read())
             if content:
-                episodes = content
+                episodes = content['episodes']
                 dpg.configure_item('loading_indicator_group', show=False)
             else:   # not file.close so no content in the json file
                 try:
@@ -164,6 +208,8 @@ def load_imgexpmasks(mode=''):
     if 'frames' in episodes[episode_idx-1]:
         for dic_key in episodes[episode_idx-1]['frames'][frame_idx-1]:
             # episodes[episode_idx-1]['frames'][frame_idx-1][dic_key] = np.asarray(episodes[episode_idx-1]['frames'][frame_idx-1][dic_key])
+            if dic_key == 'commentable':
+                continue
             contours = episodes[episode_idx-1]['frames'][frame_idx-1][dic_key]
             for i in range(len(contours)):
                 contours[i] = np.asarray(contours[i])
@@ -181,7 +227,7 @@ def load_imgexpmasks(mode=''):
     except:
         dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
         dpg.configure_item('load_status_modal', show=True)
-    if dpg.get_value('eval_mode_txt').split()[1] == 'enabled' and mode != 'single_show':
+    if (dpg.get_value('eval_mode_txt').split()[1] == 'enabled' or dpg.get_value('eval_mode_txt').split()[1] == 'enabled') and mode != 'single_show':
         eval_enable()
     else:
         dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
@@ -241,6 +287,17 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('episode_id', 'Episode_ID: '+episodes[episode_idx-1]['episode_id'])
         dpg.set_value('trajectory_id', 'Trajectory_ID: '+episodes[episode_idx-1]['trajectory_id'])
         dpg.configure_item('drag_int_episodes', max_value=len(episodes))
+        if dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
+            if 'evaluation' in episodes[episode_idx-1]:
+                dpg.set_value('yes_or_no', episodes[episode_idx-1]['evaluation'])
+            else:
+                dpg.set_value('yes_or_no', 'UnKnown')
+            if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                dpg.set_value('hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+            else:
+                dpg.set_value('hint_txt', '')
+                dpg.set_value('comment_txt', '')
         load_imgexpmasks()
         exps_show_callback(sender, app_data, True)
     elif obj == 'frames':
@@ -249,6 +306,13 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('len_episodes', '/' + str(len(episodes)))
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
         dpg.configure_item('drag_int_frames', max_value=episodes[episode_idx-1]['len_frames'])
+        if dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
+            if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                dpg.set_value('hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+            else:
+                dpg.set_value('hint_txt', '')
+                dpg.set_value('comment_txt', '')
         load_imgexpmasks()
     else:
         raise ValueError('Not supported object:{} for {}'.format(obj, mode))
@@ -280,7 +344,7 @@ def exps_show_callback(sender, app_data, user_data):
     dpg.delete_item('pop_up_exps_sub')
     with dpg.group(tag='pop_up_exps_sub', parent='pop_up_exps'):
         with dpg.child_window(height=EXP_POPUP_SCROLL_HEIGHT, width=600, delay_search=True, tag='exp_popup_scroll'):
-            dpg.add_text('注：所有编辑操作完成后需确认,可复制粘贴', wrap=0, color=(255, 0, 0))
+            dpg.add_text('注：所有编辑操作完成后需确认,可复制粘贴,按顺序修改,勿重复', wrap=0, color=(255, 0, 0))
             for e_id, e in episodes[episode_idx-1]['expressions'].items():
                 with dpg.group(horizontal=True, tag=e_id):
                     dpg.add_input_text(default_value=e, tag=e_id+'input', user_data=[e_id, 'upd'], callback=exps_operation)
@@ -332,7 +396,7 @@ def exps_operation(sender, app_data, user_data):
     else:   # save
         exps_show_callback(sender, app_data, user_data)
         # write_json()
-        dpg.configure_item('pop_edit_panel', show=False)
+        dpg.configure_item('exp_edit_panel', show=False)
         for item in dpg.get_item_children('key_event_handler', 1):
             dpg.set_item_callback(item, key_event_handler)
         for item in dpg.get_item_children('mouse_event_handler', 1):
@@ -364,6 +428,24 @@ def mask_show_callback(sender, app_data, user_data):
             raw_data_ori = cv2.addWeighted(raw_data_ori, 1, bk.astype(np.uint8), FUSION_FACTOR, 0)
             # raw_data_ori = cv2.drawContours(raw_data_ori, contours, -1, color, -1)
             dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
+def eval_callback(sender, app_data, user_data):
+    episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
+    if user_data == 'yes':
+        episodes[episode_idx-1]['evaluation'] = 'Yes'
+        dpg.set_value('yes_or_no', 'Yes')
+    elif user_data == 'no':
+        episodes[episode_idx-1]['evaluation'] = 'No'
+        dpg.set_value('yes_or_no', 'No')
+    elif user_data == 'comment':  
+        val = dpg.get_value(sender)
+        episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'] = val
+        dpg.set_value('hint_txt', val)
+    else: # input_for_frame_comment
+        dpg.configure_item('comment_edit_panel', show=False)
+        for item in dpg.get_item_children('key_event_handler', 1):
+            dpg.set_item_callback(item, key_event_handler)
+        for item in dpg.get_item_children('mouse_event_handler', 1):
+            dpg.set_item_callback(item, mouse_event_handler)
 def eval_enable():
     global raw_data_ori
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
@@ -375,9 +457,9 @@ def eval_enable():
             ids = [0, 1, 2, 3, 4]
             random.shuffle(ids)
             for exp, contours in frame_mask_dict.items():
+                if exp == 'commentable':
+                    continue
                 color = COLORS[ids[color_id]]
-                # set_mask(raw_data_ori, mask_nparray)
-                # raw_data_ori = cv2.addWeighted(raw_data_ori, 1, mask_nparray.astype(np.uint8), FUSION_FACTOR, 0)
                 dpg.add_text(exp, color=color)
                 bk = np.zeros_like(raw_data_ori)
                 bk = cv2.drawContours(bk, contours, -1, color, -1)
@@ -396,11 +478,12 @@ def mouse_event_handler(sender, data):
         # dpg.set_value('mouse_move', f"Mouse pos: {data}")
         mouse_point = data
 def mask_operation(mode):
+    global selectable_item_exp
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
     if mode == 'add':
         if boundary(mouse_point, SEG_FRAME_OFFSET_X, SEG_FRAME_OFFSET_Y, SEG_FRAME_END_X, SEG_FRAME_END_Y):
             i, j = restore(mouse_point, 'seg')
-            print('Clicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
+            # print('Clicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
             if 'frames' not in episodes[episode_idx-1]:
                 episodes[episode_idx-1]['frames'] = init_frames(episodes[episode_idx-1]['len_frames'])
             color = raw_data_seg[i, j].tolist()
@@ -413,7 +496,6 @@ def mask_operation(mode):
             mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
             _, thresh = cv2.threshold(mask_gray, GRAY_THRESHOLD, 255, 0)
             contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            # cv2.imwrite('polyimage.jpg', cv2.drawContours(filtered_mask, [contours[0]], 0, (0, 255, 255), -1))
 
             # dpg.set_value('ori_frame', set_mask_for_ori(raw_data_ori, filtered_mask).astype(np.float32) / 255)
             if selectable_item_exp != '':
@@ -425,10 +507,23 @@ def mask_operation(mode):
                     episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = [contours[0]]
                     # episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp] = filtered_mask
                 mask_show_callback(None, None, None)
+                dpg.delete_item('exps_masked_sub')
+                with dpg.group(tag='exps_masked_sub', horizontal=True, parent='exps_masked'):
+                    if 'frames' in episodes[episode_idx-1]:
+                        frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
+                        color_id = 0
+                        ids = [0, 1, 2, 3, 4]
+                        random.shuffle(ids)
+                        for exp, contours in frame_mask_dict.items():
+                            if exp == 'commentable':
+                                continue
+                            color = COLORS[ids[color_id]]
+                            dpg.add_text(exp, color=color)
+                            color_id += 1
     elif mode == 'del':
         if boundary(mouse_point, ORI_FRAME_OFFSET_X, ORI_FRAME_OFFSET_Y, ORI_FRAME_END_X, ORI_FRAME_END_Y):
             i, j = restore(mouse_point, 'ori')
-            print('DoubleClicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
+            # print('DoubleClicked at', mouse_point, 'Frame pixel i:{} j:{}'.format(i, j))
             filtered_mask = get_mask_by_graph(raw_data_seg, i, j)
             mask_gray = cv2.cvtColor(filtered_mask, cv2.COLOR_RGB2GRAY)
             _, thresh = cv2.threshold(mask_gray, GRAY_THRESHOLD, 255, 0)
@@ -443,6 +538,19 @@ def mask_operation(mode):
                                 del episodes[episode_idx-1]['frames'][frame_idx-1][selectable_item_exp]
                             break
                     mask_show_callback(None, None, None)
+                    dpg.delete_item('exps_masked_sub')
+                    with dpg.group(tag='exps_masked_sub', horizontal=True, parent='exps_masked'):
+                        if 'frames' in episodes[episode_idx-1]:
+                            frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
+                            color_id = 0
+                            ids = [0, 1, 2, 3, 4]
+                            random.shuffle(ids)
+                            for exp, contours in frame_mask_dict.items():
+                                if exp == 'commentable':
+                                    continue
+                                color = COLORS[ids[color_id]]
+                                dpg.add_text(exp, color=color)
+                                color_id += 1
             else:
                 exp = ''
                 for exp in episodes[episode_idx-1]['frames'][frame_idx-1]:
@@ -454,6 +562,24 @@ def mask_operation(mode):
                 if len(episodes[episode_idx-1]['frames'][frame_idx-1][exp]) == 0:
                     del episodes[episode_idx-1]['frames'][frame_idx-1][exp]
                 mask_show_callback(None, None, None)
+                dpg.delete_item('exps_masked_sub')
+                with dpg.group(tag='exps_masked_sub', horizontal=True, parent='exps_masked'):
+                    if 'frames' in episodes[episode_idx-1]:
+                        frame_mask_dict =  episodes[episode_idx-1]['frames'][frame_idx-1]
+                        color_id = 0
+                        ids = [0, 1, 2, 3, 4]
+                        random.shuffle(ids)
+                        for exp, contours in frame_mask_dict.items():
+                            if exp == 'commentable':
+                                continue
+                            color = COLORS[ids[color_id]]
+                            dpg.add_text(exp, color=color)
+                            color_id += 1
+            
+            load_imgexpmasks()
+            dpg.set_value('ori_frame', raw_data_ori.astype(np.float32) / 255)
+            selectable_item_exp = ''
+            exp_select_callback(None, None, None)
     else:   
         pass
 def get_mask_by_graph(data, i, j, mode=''):
@@ -497,7 +623,6 @@ def get_mask_by_graph(data, i, j, mode=''):
                     if np.array_equal(data[ni, nj], data[i, j]):
                         if np.array_equal(fill[ni, nj], np.ones(3)):
                             fill[ni, nj] = point
-                            q.put((ni, nj))
         for i in range(FRAME_HEIGHT):
             for j in range(FRAME_WIDTH):
                 if np.array_equal(fill[i, j], np.ones(3)):
@@ -535,7 +660,7 @@ def key_event_handler(sender, app_data, user_data):
     if DVC == 'WIN':
         key_esc = 27
     else:  # press linux ESC
-        key_ctrl = 256
+        key_esc = 256
     if app_data in [ 72, 265 ]: # press h or w or up key 87 is w
         idx_callback(sender, app_data, ['minus', 'episodes'])
     elif app_data in [ 74, 262 ]: # press j or d or right key 68 is d
@@ -553,9 +678,11 @@ def key_event_handler(sender, app_data, user_data):
         selectable_item_exp = ''
         exp_select_callback(None, None, None)
     else:
-        print('Other key_id: {} pressed!'.format(app_data))
+        # print('Other key_id: {} pressed!'.format(app_data))
+        pass
 def ctrl_combo_key_callback():
     ls = ['h', 'j', 'k', 'l', 'up', 'right', 'left', 'down']  
+    global episodes
     if dpg.is_key_down(dpg.mvKey_E):   # navigation shortcut mode enable
         for i in ls:
             dpg.configure_item('bind_key_' + i, callback=key_event_handler)
@@ -565,14 +692,74 @@ def ctrl_combo_key_callback():
     elif dpg.is_key_down(dpg.mvKey_S):
         write_json()
     elif dpg.is_key_down(dpg.mvKey_W): # evaluation or check mode enable
-        dpg.set_value('eval_mode_txt', 'Evaluation: enabled')
+        dpg.set_value('eval_mode_txt', 'LookUp: enabled')
         load_imgexpmasks()
     elif dpg.is_key_down(dpg.mvKey_Q): # evaluation or check mode disable
-        dpg.set_value('eval_mode_txt', 'Evaluation: disabled')
+        dpg.set_value('eval_mode_txt', 'LookUp: disabled')
         dpg.delete_item('exps_masked_sub')
         with dpg.group(tag='exps_masked_sub', parent='exps_masked', horizontal=True):
             pass
         load_imgexpmasks()
+    elif dpg.is_key_down(dpg.mvKey_F): # evaluation or check mode enable
+        if dpg.get_value('real_eval_mode_txt').split()[1] == 'disabled':
+            dpg.set_value('real_eval_mode_txt', 'Evaluation: enabled')
+            dpg.configure_item('yes_btn', show=True)
+            dpg.configure_item('or_txt', show=True)
+            dpg.configure_item('no_btn', show=True)
+            dpg.configure_item('yes_or_no', show=True)
+            dpg.configure_item('comment_panel', show=True)
+            cnt = len(episodes) * EVAL_RANDOM_PERCENT
+            cnt = int(cnt) if cnt >= 1 else 1
+            if os.path.exists('annotations/{}/{}_eval.json'.format(save_split, save_scene)):
+                with open('annotations/{}/{}_eval.json'.format(save_split, save_scene), mode='r') as f:
+                    content = f.read()
+                    # print(content)
+                    if content:
+                        n_episodes = json.loads(content)['episodes']
+                        nn_episodes = []
+                        for n_episode in n_episodes:
+                            for episode in episodes:
+                                if episode['episode_id'] == n_episode['episode_id']:
+                                    if 'evaluation' in n_episode:
+                                        episode['evaluation'] = n_episode['evaluation']
+                                    for i in range(episode['len_frames']):
+                                        if 'commentable' in n_episode['frames'][i]:
+                                            episode['frames'][i]['commentable'] = n_episode['frames'][i]['commentable']
+                                    nn_episodes.append(episode)
+                        episodes = nn_episodes
+                        # print(episodes)
+                        dpg.configure_item('loading_indicator_group', show=False)
+                    else:   # not file.close so no content in the json file
+                        try:
+                            episodes = random.sample(episodes, cnt)
+                            dpg.configure_item('loading_indicator_group', show=False)
+                        except:
+                            dpg.set_value('load_status_txt', 'Load annotations/{}/{}_eval.json failed, file does not exists!'.format(save_split, save_scene))
+                            dpg.configure_item('load_status_modal', show=True)
+                            dpg.configure_item('loading_indicator_group', show=False)
+            else:
+                try:
+                    episodes = random.sample(episodes, cnt)
+                    dpg.configure_item('loading_indicator_group', show=False)
+                except:
+                    dpg.set_value('load_status_txt', 'Load annotations/{}/{}_eval.json failed, file does not exists!'.format(save_split, save_scene))
+                    dpg.configure_item('load_status_modal', show=True)
+                    dpg.configure_item('loading_indicator_group', show=False)
+            # episodes = random.sample(episodes, cnt)
+            idx_callback(None, None, ['set', 'episodes', 1])
+    elif dpg.is_key_down(dpg.mvKey_G): # evaluation or check mode disable
+        if dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
+            dpg.set_value('real_eval_mode_txt', 'Evaluation: disabled')
+            dpg.configure_item('yes_btn', show=False)
+            dpg.configure_item('or_txt', show=False)
+            dpg.configure_item('no_btn', show=False)
+            dpg.configure_item('yes_or_no', show=False)
+            dpg.configure_item('comment_panel', show=False)
+            load_json()
+            idx_callback(None, None, ['set', 'episodes', 1])
+            dpg.delete_item('exps_masked_sub')
+            with dpg.group(tag='exps_masked_sub', parent='exps_masked', horizontal=True):
+                pass
     elif dpg.is_key_down(dpg.mvKey_R):  # dark theme mode enable
         toggle_theme(None, None, None, mode='dark')
     elif dpg.is_key_down(dpg.mvKey_T):  # light theme mode enable
@@ -663,7 +850,10 @@ def init_frames(length):
     return frames
 # popup window for editting expressions callback function
 def popup_callback(sender, app_data, user_data):
-    dpg.configure_item('pop_edit_panel', show=True)
+    if user_data == 'exp':
+        dpg.configure_item('exp_edit_panel', show=True)
+    else:  # comment
+        dpg.configure_item('comment_edit_panel', show=True)
     for item in dpg.get_item_children('key_event_handler', 1):
         dpg.set_item_callback(item, None)
     for item in dpg.get_item_children('mouse_event_handler', 1):
@@ -760,7 +950,7 @@ def main(args):
             # Load button
             dpg.add_button(callback=load_json_callback, label="Load", tag='load_btn')
             # episode_idx selector
-            dpg.add_text('| State: Episode')
+            dpg.add_text('| Episode')
             dpg.add_text(DEFAULT_EPISODE_IDX, tag='episode_idx')
             dpg.add_text('', tag='len_episodes')
             dpg.add_button(arrow=True, direction=dpg.mvDir_Left, callback=idx_callback,\
@@ -775,10 +965,15 @@ def main(args):
             dpg.add_text('', tag='len_frames')
             dpg.add_button(arrow=True, direction=dpg.mvDir_Left, callback=idx_callback, \
                  user_data=['minus', 'frames'])
-            dpg.add_drag_int(width=90, default_value=DEFAULT_FRAME_IDX, callback=idx_callback, min_value=1,\
+            dpg.add_drag_int(width=70, default_value=DEFAULT_FRAME_IDX, callback=idx_callback, min_value=1,\
                  user_data=['drag', 'frames'], tag='drag_int_frames')
             dpg.add_button(arrow=True, direction=dpg.mvDir_Right, callback=idx_callback, \
                  user_data=['plus', 'frames'])
+            dpg.add_text('Evaluation: disabled', tag='real_eval_mode_txt')
+            dpg.add_button(label='Yes', tag='yes_btn', show=False, callback=eval_callback, user_data='yes')
+            dpg.add_text('or', tag='or_txt', show=False)
+            dpg.add_button(label='No', tag='no_btn', show=False, callback=eval_callback, user_data='no')
+            dpg.add_text('UnKnown', tag='yes_or_no', show=False)
 
 
         # Origin and segmentation frames show and operation space
@@ -800,18 +995,18 @@ def main(args):
             with dpg.group():
                 # Insturctions
                 with dpg.tree_node(tag='user_instruction', label='使用说明'):
-                    with dpg.tree_node(label='准备事项'):
-                        dpg.add_text("确保已下载好标注和场景文件并放置在annotations和scenes目录下", wrap=0, bullet=True)
-                        dpg.add_text("运行scripts/stscene.sh打开场景", wrap=0, bullet=True)
-                        dpg.add_text("运行scripts/save_imgs.sh保存需要的图片和表达式信息到data目录下", wrap=0, bullet=True)
-                    with dpg.tree_node(label='使用事项'):
-                        dpg.add_text("通过工具栏选定split和scene后Load图片和表达式信息", wrap=0, bullet=True)
-                        dpg.add_text("通过方向键或工具栏中拖动栏控制episode和frame序号来调整左侧原图和segmentation图", wrap=0, bullet=True)
-                        dpg.add_text("在左下方segmentation图单击任一mask任一点对当前帧当前表达式添加mask并在原图显示", wrap=0, bullet=True)
-                        dpg.add_text("在左上方原图双击任一mask任一点来删除当前选定表达式的mask", wrap=0, bullet=True)
-                        dpg.add_text("可通过点击任一表达式来在原图中查看当前帧该表达式已添加的mask, ESC键清除原图mask", wrap=0, bullet=True)
-                        dpg.add_text("可通过编辑按钮触发弹出窗并进行表达式增加删除和编辑，需按保存按钮关闭", wrap=0, bullet=True)
-                        dpg.add_text("关闭软件前按Ctrl+S进行保存！", bullet=True, wrap=0)
+                    # with dpg.tree_node(label='准备事项'):
+                    #     dpg.add_text("确保已下载好标注和场景文件并放置在annotations和scenes目录下", wrap=0, bullet=True)
+                    #     dpg.add_text("运行scripts/stscene.sh打开场景", wrap=0, bullet=True)
+                    #     dpg.add_text("运行scripts/save_imgs.sh保存需要的图片和表达式信息到data目录下", wrap=0, bullet=True)
+                    # with dpg.tree_node(label='使用事项'):
+                    dpg.add_text("通过工具栏选定split和scene后Load图片和表达式信息", wrap=0, bullet=True)
+                    dpg.add_text("通过方向键或工具栏控制episode和frame序号来导航", wrap=0, bullet=True)
+                    dpg.add_text("在左下方图单击任一mask任一点对当前帧当前表达式添加mask并在原图显示", wrap=0, bullet=True)
+                    dpg.add_text("在左上方图双击任一mask任一点来删除当前选定表达式的mask", wrap=0, bullet=True)
+                    dpg.add_text("可点击任一表达式在左上方图查看当前帧该表达式已添加的mask,ESC清除显示", wrap=0, bullet=True)
+                    dpg.add_text("可通过编辑按钮触发弹出窗并进行表达式增加删除和编辑，需按确认按钮关闭", wrap=0, bullet=True)
+                    dpg.add_text("关闭软件前按Ctrl+S进行保存！", bullet=True, wrap=0)
                         # dpg.add_text("下方状态栏显示当前界面所在的episode_id、trajectory_id和scene_id等状态信息", wrap=0, bullet=True)
                         # dpg.add_text("可通过Ctrl+E打开快捷键模式，Ctrl+D关闭快捷键模式，可在下方状态栏看到当前快捷键模式状态", wrap=0, bullet=True)
                     # with dpg.tree_node(label='注意事项'):
@@ -828,7 +1023,7 @@ def main(args):
                         dpg.add_text('', tag='instruction_translated', wrap=0)
                 with dpg.group(horizontal=True):
                     dpg.add_text('已解析表达式(存在冗余或不准确)', color=(0, 255, 0))
-                    dpg.add_button(label='编辑', tag='pop_up_edit_btn', callback=popup_callback)
+                    dpg.add_button(label='编辑', tag='pop_up_edit_btn', callback=popup_callback, user_data='exp')
                 # dpg.add_button(label='button', callback=popup_callback)
                 # saving status popup tooltip if failed
                 with dpg.popup('pop_up_edit_btn', modal=True, tag="save_status_modal", no_move=True):
@@ -843,7 +1038,7 @@ def main(args):
                         dpg.add_button(label="确认", width=75, tag='loadcfmbtn', callback=lambda: dpg.configure_item("load_status_modal", show=False))
                         dpg.set_item_pos('loadcfmbtn', [450, 80])
                 # exp edit window
-                with dpg.window(modal=True, tag='pop_edit_panel', show=False):
+                with dpg.window(modal=True, tag='exp_edit_panel', show=False):
                     with dpg.group(tag='pop_up_exps'):
                         dpg.add_input_text(default_value='', tag='ins_multiline', multiline=True, readonly=True, width=-1)
                         with dpg.group(tag='pop_up_exps_sub'):
@@ -851,26 +1046,27 @@ def main(args):
                     dpg.add_separator()
                     with dpg.group(horizontal=True, tag='btnlist'):
                         dpg.add_button(label="确认", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
-                        # dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
-                    # dpg.set_item_pos('pop_edit_panel', [780, 350])
-                    dpg.set_item_pos('pop_edit_panel', [650, 250])
-                # with dpg.popup('pop_up_edit_btn', modal=True, mousebutton=dpg.mvMouseButton_Left, tag="pop_edit_panel"):
-                #     with dpg.group(tag='pop_up_exps'):
-                #         dpg.add_input_text(default_value='', tag='ins_multiline', multiline=True, readonly=True, width=-1)
-                #         with dpg.group(tag='pop_up_exps_sub'):
-                #             pass
-                #     dpg.add_separator()
-                #     with dpg.group(horizontal=True, tag='btnlist'):
-                #         dpg.add_button(label="确认", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
-                #         # dpg.add_button(label="取消", width=75, tag='clcbtn', callback=lambda: dpg.configure_item("pop_edit_panel", show=False), parent='btnlist')
-                #     # dpg.set_item_pos('pop_edit_panel', [780, 350])
-                #     dpg.set_item_pos('pop_edit_panel', [650, 250])
+                        if DVC == 'Win':
+                            dpg.set_item_pos('savebtn', [250, 420])
+                    dpg.set_item_pos('exp_edit_panel', [650, 250])
                 with dpg.group(tag='exps'):
                     with dpg.group(tag='exps_sub'):
                         pass
                     with dpg.group(tag='exps_masked', horizontal=True):
                         with dpg.group(tag='exps_masked_sub', horizontal=True):
                             pass
+                # comment panel
+                with dpg.group(horizontal=True, show=False, tag='comment_panel'):
+                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', readonly=True, tag='hint_txt', width=700)
+                    dpg.add_button(label='编辑', callback=popup_callback, user_data='comment')
+                with dpg.window(modal=True, tag='comment_edit_panel', show=False):
+                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', tag='comment_txt', callback=eval_callback, user_data='comment', width=700)
+                    dpg.add_separator()
+                    with dpg.group(horizontal=True, tag='evalbtnlist'):
+                        dpg.add_button(label="确认", width=75, tag='evalsavebtn', user_data='save', callback=eval_callback, parent='evalbtnlist')
+                        if DVC == 'Win':
+                            dpg.set_item_pos('evalsavebtn', [250, 420])
+                    dpg.set_item_pos('comment_edit_panel', [650, 250])
                 # Operating logs
                 # dpg.add_text("操作日志：")
 
@@ -890,7 +1086,7 @@ def main(args):
             dpg.add_text('', tag='trajectory_id')
             dpg.add_text('', tag='mouse_move')
             # dpg.add_text('Shortcut: enabled', tag='shortcut')
-            dpg.add_text('Evaluation: disabled', tag='eval_mode_txt')
+            dpg.add_text('LookUp: disabled', tag='eval_mode_txt')
 
         # test component
         
