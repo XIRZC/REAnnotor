@@ -18,7 +18,7 @@ import random
 DVC = 'WIN'
 
 # Global Constant and Variables
-DEFAULT_SPLIT = 'val_seen'
+DEFAULT_SPLIT = 'val_unseen'
 DEFAULT_SCENE = 3
 DEFAULT_EPISODE_IDX = 4
 DEFAULT_FRAME_IDX = 1
@@ -63,8 +63,14 @@ theme = 'light'
 # Json load and write functions
 def write_json():
     global episodes
+    if save_scene == 'None':
+        seg_json_filename = 'annotations/{}_seg.json'.format(save_split)
+        eval_json_filename = 'annotations/{}_eval.json'.format(save_split)
+    else:
+        seg_json_filename = 'annotations/{}/{}_seg.json'.format(save_split, save_scene)
+        eval_json_filename = 'annotations/{}/{}_eval.json'.format(save_split, save_scene)
     if dpg.get_value('real_eval_mode_txt').split()[1] == 'disabled':
-        with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
+        with open(seg_json_filename, mode='w+') as f:
             try:
                 dpg.configure_item('saving_indicator_group', show=True)
                 json.dump({'episodes': episodes}, f, cls=NumpyArrayEncoder)
@@ -74,14 +80,13 @@ def write_json():
             except:
                 episodes = None
                 dpg.configure_item('saving_indicator_group', show=False)
-                dpg.set_value('save_status_txt', 'Save into annotations/{}/{}_seg.json failed!'.format(save_split, save_scene))
+                dpg.set_value('save_status_txt', 'Save into {} failed!'.format(seg_json_filename))
                 dpg.configure_item('save_status_modal', show=True)
     else:
-        with open('annotations/{}/{}_eval.json'.format(save_split, save_scene), mode='w+') as f:
+        with open(eval_json_filename, mode='w+') as f:
             n_episodes = []
             yes_cnt = 0
             for episode in episodes:
-                # print(episode)
                 n_episode = dict()
                 n_episode['episode_id'] = episode['episode_id']
                 if 'evaluation' in episode:
@@ -130,27 +135,34 @@ def load_json():
     def load_scene(split, scene):
         root_path = Path(__file__).resolve().parent
         anno_path = root_path / 'annotations'
-        scene_path = anno_path / split / (scene + '.json')
+        if scene == 'None':
+            data_path = anno_path / (split + '.json')
+        else:
+            data_path = anno_path / split / (scene + '.json')
         data = dict()
-        with scene_path.open(mode='r') as f:
+        with data_path.open(mode='r') as f:
             data = json.load(f)
         episodes = data['episodes']
         for episode in episodes:
             episode['len_frames'] = len(episode['reference_path'])
         return episodes
+
     split = dpg.get_value('split')
-    scene = dpg.get_value('scene') if dpg.get_value('scene') != 'None' else None 
+    scene = dpg.get_value('scene')
     global save_split, save_scene
     save_split, save_scene = split, scene
     dpg.set_value('split_txt', 'Split: ' + save_split)
     dpg.set_value('scene_txt', 'Scene: ' + save_scene)
     global episodes
-    # for epi in episodes:
-    #     epi['expressions'] = []  # list of referring expressions
-    #     epi['frames'] = []   # list of dict(key: expression, value: corresponding mask ndarray)
+    if save_scene == 'None':
+        seg_json_filename = 'annotations/{}_seg.json'.format(save_split)
+    else:
+        seg_json_filename = 'annotations/{}/{}_seg.json'.format(save_split, save_scene)
+    
     dpg.configure_item('loading_indicator_group', show=True)
-    if os.path.exists('annotations/{}/{}_seg.json'.format(save_split, save_scene)):
-        with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='r') as f:
+    episodes = load_scene(split, scene)
+    if os.path.exists(seg_json_filename):
+        with open(seg_json_filename, mode='r') as f:
             content = json.loads(f.read())
             if content:
                 episodes = content['episodes']
@@ -161,22 +173,16 @@ def load_json():
                     dpg.configure_item('loading_indicator_group', show=False)
                 except:
                     episodes = None
-                    dpg.set_value('load_status_txt', 'Load annotations/{}/{}_seg.json failed, file does not exists!'.format(save_split, save_scene))
+                    dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(seg_json_filename))
                     dpg.configure_item('load_status_modal', show=True)
                     dpg.configure_item('loading_indicator_group', show=False)
     else:
-        # episodes = load_scene(split, scene)
-        # # with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
-        # #     json.dump({'episodes': episodes}, f, indent=4)
-        # dpg.configure_item('loading_indicator_group', show=False)
         try:
             episodes = load_scene(split, scene)
-            # with open('annotations/{}/{}_seg.json'.format(save_split, save_scene), mode='w+') as f:
-            #     json.dump({'episodes': episodes}, f, indent=4)
             dpg.configure_item('loading_indicator_group', show=False)
         except:
             episodes = None
-            dpg.set_value('load_status_txt', 'Load annotations/{}/{}_seg.json failed, file does not exists!'.format(save_split, save_scene))
+            dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(seg_json_filename))
             dpg.configure_item('load_status_modal', show=True)
             dpg.configure_item('loading_indicator_group', show=False)
 def load_split_callback(sender, app_data):
@@ -185,9 +191,8 @@ def load_split_callback(sender, app_data):
     split_scene_idx_dict['val_seen'] = [1, 2, 3, 5, 8, 10, 11, 12, 14, 16, 17, 20, 23, 26]
     split_scene_idx_dict['val_unseen'] = [6, 9, 13, 24]
     split_scene_idx_dict['test'] = [7, 15, 18, 21]
-    split = dpg.get_value(sender)
-    # scene_list = ['None']
-    scene_list = []
+    split = dpg.get_value(sender) if sender is not None else app_data
+    scene_list = ['None']
     for idx in split_scene_idx_dict[split]:
         scene_list.append(idx)
     dpg.configure_item('scene', items=scene_list) 
@@ -218,14 +223,16 @@ def load_imgexpmasks(mode=''):
     global raw_data_ori, raw_data_seg
     # width, height, _, data_ori = dpg.load_image('{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
     #     int(scene), trajectory_id, episode_id, frame_idx-1))
+    scene = int(save_scene) if save_scene != 'None' else int(episodes[episode_idx-1]['scene_id'])
     ori_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(ori_img_dir),\
-        int(save_scene), trajectory_id, episode_id, frame_idx-1)
+        scene, trajectory_id, episode_id, frame_idx-1)
     seg_img_name = '{}/{:02d}_{}_{}/{:03d}.jpg'.format(str(seg_img_dir),\
-        int(save_scene), trajectory_id, episode_id, frame_idx-1)
+        scene, trajectory_id, episode_id, frame_idx-1)
+    exp_name = ori_img_dir / '{:02d}_{}_{}/expressions.json'.format(scene, trajectory_id, episode_id)
     try:
         raw_data_ori = cv2.cvtColor(cv2.imread(ori_img_name), cv2.COLOR_BGR2RGB)
     except:
-        dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
+        dpg.set_value('load_status_txt', 'Load {} failed, img does not exists!'.format(ori_img_name))
         dpg.configure_item('load_status_modal', show=True)
     if (dpg.get_value('eval_mode_txt').split()[1] == 'enabled' or dpg.get_value('eval_mode_txt').split()[1] == 'enabled') and mode != 'single_show':
         eval_enable()
@@ -236,12 +243,12 @@ def load_imgexpmasks(mode=''):
     try:
         raw_data_seg = cv2.cvtColor(cv2.imread(seg_img_name), cv2.COLOR_BGR2RGB)
     except:
-        dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
+        dpg.set_value('load_status_txt', 'Load {} failed, dir does not exists!'.format(seg_img_name))
         dpg.configure_item('load_status_modal', show=True)
     dpg.set_value('seg_frame', raw_data_seg.astype(np.float32) / 255)
     # load exps
     try:
-        with (ori_img_dir / '{:02d}_{}_{}'.format(int(save_scene), trajectory_id, episode_id) / 'expressions.json').open() as f:
+        with exp_name.open() as f:
             exp = json.loads(f.read())
         dpg.set_value('instruction', exp['instruction'])
         dpg.set_value('instruction_translated', exp['instruction_translated'])
@@ -249,7 +256,7 @@ def load_imgexpmasks(mode=''):
         if 'expressions' not in episodes[episode_idx-1]:
             episodes[episode_idx-1]['expressions'] = exp['expressions']
     except:
-        dpg.set_value('load_status_txt', 'Load data/{}/{:02d}_{}_{} failed, dir does not exists!'.format(save_split, int(save_scene), trajectory_id, episode_id))
+        dpg.set_value('load_status_txt', 'Load {} failed, dir does not exists!'.format(exp_name))
         dpg.configure_item('load_status_modal', show=True)
 
     return  raw_data_ori, raw_data_seg, exp
@@ -710,10 +717,13 @@ def ctrl_combo_key_callback():
             dpg.configure_item('comment_panel', show=True)
             cnt = len(episodes) * EVAL_RANDOM_PERCENT
             cnt = int(cnt) if cnt >= 1 else 1
-            if os.path.exists('annotations/{}/{}_eval.json'.format(save_split, save_scene)):
-                with open('annotations/{}/{}_eval.json'.format(save_split, save_scene), mode='r') as f:
+            if save_scene == 'None':
+                eval_json_filename = 'annotations/{}_eval.json'.format(save_split)
+            else:
+                eval_json_filename = 'annotations/{}/{}_eval.json'.format(save_split, save_scene)
+            if os.path.exists(eval_json_filename):
+                with open(eval_json_filename, mode='r') as f:
                     content = f.read()
-                    # print(content)
                     if content:
                         n_episodes = json.loads(content)['episodes']
                         nn_episodes = []
@@ -727,14 +737,13 @@ def ctrl_combo_key_callback():
                                             episode['frames'][i]['commentable'] = n_episode['frames'][i]['commentable']
                                     nn_episodes.append(episode)
                         episodes = nn_episodes
-                        # print(episodes)
                         dpg.configure_item('loading_indicator_group', show=False)
                     else:   # not file.close so no content in the json file
                         try:
                             episodes = random.sample(episodes, cnt)
                             dpg.configure_item('loading_indicator_group', show=False)
                         except:
-                            dpg.set_value('load_status_txt', 'Load annotations/{}/{}_eval.json failed, file does not exists!'.format(save_split, save_scene))
+                            dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(eval_json_filename))
                             dpg.configure_item('load_status_modal', show=True)
                             dpg.configure_item('loading_indicator_group', show=False)
             else:
@@ -742,10 +751,9 @@ def ctrl_combo_key_callback():
                     episodes = random.sample(episodes, cnt)
                     dpg.configure_item('loading_indicator_group', show=False)
                 except:
-                    dpg.set_value('load_status_txt', 'Load annotations/{}/{}_eval.json failed, file does not exists!'.format(save_split, save_scene))
+                    dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(eval_json_filename))
                     dpg.configure_item('load_status_modal', show=True)
                     dpg.configure_item('loading_indicator_group', show=False)
-            # episodes = random.sample(episodes, cnt)
             idx_callback(None, None, ['set', 'episodes', 1])
     elif dpg.is_key_down(dpg.mvKey_G): # evaluation or check mode disable
         if dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
@@ -945,8 +953,8 @@ def main(args):
                 default_value=DEFAULT_SPLIT, width=90, callback=load_split_callback)
             # scene selector
             dpg.add_text('By Scene:', tag='scene_hint')
-            scene_list = [1, 2, 3, 4, 5, 8,10, 11, 12, 14, 16, 17, 20, 22, 23, 25, 26]
-            dpg.add_combo(scene_list, tag='scene', default_value=DEFAULT_SCENE, width=50) 
+            dpg.add_combo([], tag='scene', default_value=DEFAULT_SCENE, width=50) 
+            load_split_callback(None, DEFAULT_SPLIT)
             # Load button
             dpg.add_button(callback=load_json_callback, label="Load", tag='load_btn')
             # episode_idx selector

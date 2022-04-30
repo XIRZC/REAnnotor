@@ -269,8 +269,8 @@ class Episodes(object):
         sce_id = episode['scene_id']
         opath = episode['reference_path']
         instruction = episode['instruction']['instruction_text']
-        save_origin_dir = split_dir /  'origin' / '{:02d}_{}_{}'.format(sce_id, tra_id, epi_id)
-        save_seg_dir = split_dir /  'seg' / '{:02d}_{}_{}'.format(sce_id, tra_id, epi_id)
+        save_origin_dir = split_dir /  'origin' / '{:02d}_{}'.format(sce_id, tra_id)
+        save_seg_dir = split_dir /  'seg' / '{:02d}_{}'.format(sce_id, tra_id)
         if not save_origin_dir.exists():
             try:
                 save_origin_dir.mkdir(parents=True)
@@ -331,9 +331,9 @@ class Episodes(object):
             metas['expressions'] = res
             metas['frames'] = frames
 
-            with (Path(save_origin_dir) / 'expressions.json').open(mode='w+') as f:
+            with (Path(save_origin_dir) / '{}_expressions.json'.format(epi_id)).open(mode='w+') as f:
                 json.dump(metas, f, indent=4)
-            with (Path(save_seg_dir) / 'expressions.json').open(mode='w+') as f:
+            with (Path(save_seg_dir) / '{}_expressions.json'.format(epi_id)).open(mode='w+') as f:
                 json.dump(metas, f, indent=4)
             return frames, RES, instruction, instruction_translated, save_origin_dir.name
         else:
