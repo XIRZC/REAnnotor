@@ -132,3 +132,12 @@ And here are several steps for annotating referring objects list below(w. demons
     3. delete mask by simply mouse double-press one point in the target mask in the original frame after selecting an expression
 
 6. Cltr+S or Menubar save json for save current work state into corresponding `annotations/${split}/${scene}_seg.json`
+
+
+## Advanced Features
+
+1. LookUp Mode(Ctrl + W for toggling): navigating for directly show all masks in this frame in order to not select one expression 
+
+2. Evaluation Mode(Ctrl + F for toggling): randomly shuffle 10% episodes for evalulation
+
+3. BugReport Mode(Just Editing): point out errors in the original AirVLN Dataset Annotations
