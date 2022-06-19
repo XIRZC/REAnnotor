@@ -1108,6 +1108,8 @@ def main(args):
                         dpg.add_button(label="确认", width=75, tag='savebtn', user_data=[None, 'save'], callback=exps_operation, parent='btnlist')
                         if DVC == 'WIN':
                             dpg.set_item_pos('savebtn', [250, 420])
+                        else:
+                            dpg.set_item_pos('savebtn', [250, 460])
                     dpg.set_item_pos('exp_edit_panel', [650, 250])
                 with dpg.group(tag='exps'):
                     with dpg.group(tag='exps_sub'):
@@ -1126,6 +1128,8 @@ def main(args):
                         dpg.add_button(label="确认", width=75, tag='evalsavebtn', user_data='save', callback=eval_callback, parent='evalbtnlist')
                         if DVC == 'WIN':
                             dpg.set_item_pos('evalsavebtn', [220, 70])
+                        else:
+                            dpg.set_item_pos('evalsavebtn', [220, 70])
                     dpg.set_item_pos('comment_edit_panel', [650, 250])
 
                 # data and software bug report commit panel and popup confirm window
@@ -1138,6 +1142,8 @@ def main(args):
                     with dpg.group(horizontal=True, tag='reportbtnlist'):
                         dpg.add_button(label="确认", width=75, tag='reportsavebtn', user_data='save', callback=report_callback, parent='reportbtnlist')
                         if DVC == 'WIN':
+                            dpg.set_item_pos('reportsavebtn', [300, 70])
+                        else:
                             dpg.set_item_pos('reportsavebtn', [300, 70])
                     dpg.set_item_pos('report_edit_panel', [660, 350])
 

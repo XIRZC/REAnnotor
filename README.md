@@ -2,6 +2,8 @@
 
 This is an annotation software applying to AirVLN dataset for annotating referring objects in the instruction for each navigation step.
 
+![ScreenShots](resources/screenshots.png)
+
 ## Prerequisites
 
 ### Environment
