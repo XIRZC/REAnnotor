@@ -15,7 +15,7 @@ import random
 
 # project packages imported
 
-DVC = 'WIN'
+DVC = 'Linux'
 
 # Global Constant and Variables
 DEFAULT_SPLIT = 'val_unseen'
@@ -307,6 +307,16 @@ def idx_callback(sender, app_data, user_data):
                 dpg.set_value('comment_txt', '')
         load_imgexpmasks()
         exps_show_callback(sender, app_data, True)
+        try:
+            report_filename = 'annotations/bug_report.json'
+            trajectory_id, frame_idx = dpg.get_value('trajectory_id').split()[-1], dpg.get_value('frame_idx')
+            with open(report_filename, mode='r') as f:
+                bug_report = json.loads(f.read())
+                dpg.set_value('report_hint_txt', bug_report[trajectory_id][frame_idx])
+                dpg.set_value('report_txt', bug_report[trajectory_id][frame_idx])
+        except:
+            dpg.set_value('report_txt', '')
+            dpg.set_value('report_hint_txt', '')
     elif obj == 'frames':
         frame_idx = op(frame_idx, mode)
         dpg.set_value('frame_idx', frame_idx)
@@ -321,6 +331,16 @@ def idx_callback(sender, app_data, user_data):
                 dpg.set_value('comment_hint_txt', '')
                 dpg.set_value('comment_txt', '')
         load_imgexpmasks()
+        try:
+            report_filename = 'annotations/bug_report.json'
+            trajectory_id, frame_idx = dpg.get_value('trajectory_id').split()[-1], dpg.get_value('frame_idx')
+            with open(report_filename, mode='r') as f:
+                bug_report = json.loads(f.read())
+                dpg.set_value('report_hint_txt', bug_report[trajectory_id][frame_idx])
+                dpg.set_value('report_txt', bug_report[trajectory_id][frame_idx])
+        except:
+            dpg.set_value('report_txt', '')
+            dpg.set_value('report_hint_txt', '')
     else:
         raise ValueError('Not supported object:{} for {}'.format(obj, mode))
 
@@ -454,10 +474,29 @@ def eval_callback(sender, app_data, user_data):
         for item in dpg.get_item_children('mouse_event_handler', 1):
             dpg.set_item_callback(item, mouse_event_handler)
 def report_callback(sender, app_data, user_data):
+    def write_reports(report_txt):
+        report_filename = 'annotations/bug_report.json'
+        trajectory_id, frame_idx = dpg.get_value('trajectory_id').split()[-1], dpg.get_value('frame_idx')
+        if os.path.exists(report_filename):
+            reports = dict()
+            with open(report_filename, mode='r') as f:
+                reports = json.loads(f.read())
+            if trajectory_id not in reports:
+                reports[trajectory_id] = dict()
+            reports[trajectory_id][frame_idx] = report_txt
+            with open(report_filename, mode='w') as f:
+                f.write(json.dumps(reports))
+        else:
+            with open(report_filename, mode='w') as f:
+                reports = dict()
+                reports[trajectory_id] = dict()
+                reports[trajectory_id][frame_idx] = report_txt
+                f.write(json.dumps(reports))
+    report_txt = dpg.get_value('report_txt')
     if user_data == 'report':
-        val = dpg.get_value(sender)
-        dpg.set_value('report_hint_txt', val)
+        dpg.set_value('report_hint_txt', report_txt)
     elif user_data == 'save': # input_for_episode_report
+        write_reports(report_txt)
         dpg.configure_item('report_edit_panel', show=False)
         for item in dpg.get_item_children('key_event_handler', 1):
             dpg.set_item_callback(item, key_event_handler)
