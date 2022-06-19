@@ -10,18 +10,19 @@ This is an annotation software applying to AirVLN dataset for annotating referri
 
 Python 3.8 or higher:
 
-- dearpygui
+- numpy
+- opencv-python
 - nltk
 - stanfordcorenlp
-- opencv-python
-- numpy
 - airsim
+- dearpygui
+- dearpygui_ext
 
 > We recommand that using conda create a 3.8 python virtual environment and just run pip install -r requirements.txt in the root path.
 
 ### Software Installing
 
-Just run `git clone https://github.com/XIRZC/REAnno.git` for cloning the application repository.
+Just run `git clone https://github.com/XIRZC/REAnnotor.git` for cloning the application repository.
 
 ### Data
 
