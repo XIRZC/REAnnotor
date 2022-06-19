@@ -300,10 +300,10 @@ def idx_callback(sender, app_data, user_data):
             else:
                 dpg.set_value('yes_or_no', 'UnKnown')
             if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                dpg.set_value('hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                dpg.set_value('comment_hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
                 dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
             else:
-                dpg.set_value('hint_txt', '')
+                dpg.set_value('comment_hint_txt', '')
                 dpg.set_value('comment_txt', '')
         load_imgexpmasks()
         exps_show_callback(sender, app_data, True)
@@ -315,10 +315,10 @@ def idx_callback(sender, app_data, user_data):
         dpg.configure_item('drag_int_frames', max_value=episodes[episode_idx-1]['len_frames'])
         if dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
             if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                dpg.set_value('hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                dpg.set_value('comment_hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
                 dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
             else:
-                dpg.set_value('hint_txt', '')
+                dpg.set_value('comment_hint_txt', '')
                 dpg.set_value('comment_txt', '')
         load_imgexpmasks()
     else:
@@ -446,13 +446,24 @@ def eval_callback(sender, app_data, user_data):
     elif user_data == 'comment':  
         val = dpg.get_value(sender)
         episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'] = val
-        dpg.set_value('hint_txt', val)
-    else: # input_for_frame_comment
+        dpg.set_value('comment_hint_txt', val)
+    elif user_data == 'save': # input_for_frame_comment
         dpg.configure_item('comment_edit_panel', show=False)
         for item in dpg.get_item_children('key_event_handler', 1):
             dpg.set_item_callback(item, key_event_handler)
         for item in dpg.get_item_children('mouse_event_handler', 1):
             dpg.set_item_callback(item, mouse_event_handler)
+def report_callback(sender, app_data, user_data):
+    if user_data == 'report':
+        val = dpg.get_value(sender)
+        dpg.set_value('report_hint_txt', val)
+    elif user_data == 'save': # input_for_episode_report
+        dpg.configure_item('report_edit_panel', show=False)
+        for item in dpg.get_item_children('key_event_handler', 1):
+            dpg.set_item_callback(item, key_event_handler)
+        for item in dpg.get_item_children('mouse_event_handler', 1):
+            dpg.set_item_callback(item, mouse_event_handler)
+
 def eval_enable():
     global raw_data_ori
     episode_idx, frame_idx = int(dpg.get_value('episode_idx')), int(dpg.get_value('frame_idx'))
@@ -860,8 +871,10 @@ def init_frames(length):
 def popup_callback(sender, app_data, user_data):
     if user_data == 'exp':
         dpg.configure_item('exp_edit_panel', show=True)
-    else:  # comment
+    elif user_data == 'comment':  # comment
         dpg.configure_item('comment_edit_panel', show=True)
+    elif user_data == 'report':  # reprot
+        dpg.configure_item('report_edit_panel', show=True)
     for item in dpg.get_item_children('key_event_handler', 1):
         dpg.set_item_callback(item, None)
     for item in dpg.get_item_children('mouse_event_handler', 1):
@@ -1063,18 +1076,32 @@ def main(args):
                     with dpg.group(tag='exps_masked', horizontal=True):
                         with dpg.group(tag='exps_masked_sub', horizontal=True):
                             pass
-                # comment panel
+                # evaluation commit panel and popup confirm window
                 with dpg.group(horizontal=True, show=False, tag='comment_panel'):
-                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', readonly=True, tag='hint_txt', width=500)
+                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', readonly=True, tag='comment_hint_txt', width=500)
                     dpg.add_button(label='编辑', callback=popup_callback, user_data='comment')
                 with dpg.window(modal=True, tag='comment_edit_panel', show=False):
-                    dpg.add_input_text(hint='若该帧标注存在问题,请指出,左侧点按编辑并保存', tag='comment_txt', callback=eval_callback, user_data='comment', width=500)
+                    dpg.add_input_text(hint='若该帧标注存在问题,请指出并点下方保存', tag='comment_txt', callback=eval_callback, user_data='comment', width=500)
                     dpg.add_separator()
                     with dpg.group(horizontal=True, tag='evalbtnlist'):
                         dpg.add_button(label="确认", width=75, tag='evalsavebtn', user_data='save', callback=eval_callback, parent='evalbtnlist')
                         if DVC == 'WIN':
                             dpg.set_item_pos('evalsavebtn', [220, 70])
                     dpg.set_item_pos('comment_edit_panel', [650, 250])
+
+                # data and software bug report commit panel and popup confirm window
+                with dpg.group(horizontal=True, tag='report_panel'):
+                    dpg.add_input_text(hint='若该Episode内文本和图像存在不对应问题,请在具体帧指出问题,左侧点编辑并保存', readonly=True, tag='report_hint_txt', width=620)
+                    dpg.add_button(label='编辑', callback=popup_callback, user_data='report')
+                with dpg.window(modal=True, tag='report_edit_panel', show=False):
+                    dpg.add_input_text(hint='若该Episode内文本和图像存在不对应问题,请在该栏输入并点下方保存', tag='report_txt', callback=report_callback, user_data='report', width=620)
+                    dpg.add_separator()
+                    with dpg.group(horizontal=True, tag='reportbtnlist'):
+                        dpg.add_button(label="确认", width=75, tag='reportsavebtn', user_data='save', callback=report_callback, parent='reportbtnlist')
+                        if DVC == 'WIN':
+                            dpg.set_item_pos('reportsavebtn', [300, 70])
+                    dpg.set_item_pos('report_edit_panel', [660, 350])
+
                 # Operating logs
                 # dpg.add_text("操作日志：")
 

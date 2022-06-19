@@ -1,8 +1,9 @@
 # Python 3.7 and python 3.8 tested (In some cases, 3.6 for dearpygui may leads to segmentation fault)
 # using pip install -r requirements.txt for install all dependencies, and package version is free for compatienty
+numpy
+opencv-python
 nltk
 stanfordcorenlp
 airsim
 dearpygui
-numpy
-opencv-python
+dearpygui_ext
