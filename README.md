@@ -137,10 +137,10 @@ And here are several steps for annotating referring objects list below(w. demons
 
 ## Advanced Features
 
-1. LookUp Mode(Ctrl + W for toggling): navigating for directly show all masks in this frame in order to not select one expression 
+1. LookUp Mode(Ctrl + W for enabling, Ctrl + Q for disabling): navigating for directly show all masks in this frame in order to not select one expression 
 
-2. Evaluation Mode(Ctrl + F for toggling): randomly shuffle 10% episodes for evalulation
+2. Evaluation Mode(Ctrl + F for enabling, Ctrl + G for disabling): randomly shuffle 10% episodes for evalulation
 
 3. BugReport Mode(Just Editing): point out errors in the original AirVLN Dataset Annotations
 
-4. Dark Mode(Ctrl + R for toggling)
+4. Dark Mode(Ctrl + R for dark theme, Ctrl + T for light theme)
