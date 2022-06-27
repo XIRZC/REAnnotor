@@ -122,6 +122,7 @@ def load_json_callback(sender, app_data, user_data):
         dpg.configure_item('or_txt', show=False)
         dpg.configure_item('no_btn', show=False)
         dpg.configure_item('yes_or_no', show=False)
+        dpg.configure_item('comment_no_segmentation_txt', show=False)
         dpg.configure_item('comment_panel', show=False)
         load_json()
         idx_callback(sender, app_data, ['set', 'episodes', 1])
@@ -299,12 +300,16 @@ def idx_callback(sender, app_data, user_data):
                 dpg.set_value('yes_or_no', episodes[episode_idx-1]['evaluation'])
             else:
                 dpg.set_value('yes_or_no', 'UnKnown')
-            if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                dpg.set_value('comment_hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
-                dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+            if 'frames' in episodes[episode_idx-1]:
+                dpg.set_value('comment_no_segmentation_txt', '')
+                if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                    dpg.set_value('comment_hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                    dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                else:
+                    dpg.set_value('comment_hint_txt', '')
+                    dpg.set_value('comment_txt', '')
             else:
-                dpg.set_value('comment_hint_txt', '')
-                dpg.set_value('comment_txt', '')
+                dpg.set_value('comment_no_segmentation_txt', '尚未进行标注，请完整标注后再重新评估!')
         load_imgexpmasks()
         exps_show_callback(sender, app_data, True)
         try:
@@ -324,12 +329,20 @@ def idx_callback(sender, app_data, user_data):
         dpg.set_value('len_frames', '/' + str(episodes[episode_idx-1]['len_frames']))
         dpg.configure_item('drag_int_frames', max_value=episodes[episode_idx-1]['len_frames'])
         if dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
-            if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
-                dpg.set_value('comment_hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
-                dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+            if 'evaluation' in episodes[episode_idx-1]:
+                dpg.set_value('yes_or_no', episodes[episode_idx-1]['evaluation'])
             else:
-                dpg.set_value('comment_hint_txt', '')
-                dpg.set_value('comment_txt', '')
+                dpg.set_value('yes_or_no', 'UnKnown')
+            if 'frames' in episodes[episode_idx-1]:
+                dpg.set_value('comment_no_segmentation_txt', '')
+                if 'commentable' in episodes[episode_idx-1]['frames'][frame_idx-1]:
+                    dpg.set_value('comment_hint_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                    dpg.set_value('comment_txt', episodes[episode_idx-1]['frames'][frame_idx-1]['commentable'])
+                else:
+                    dpg.set_value('comment_hint_txt', '')
+                    dpg.set_value('comment_txt', '')
+            else:
+                dpg.set_value('comment_no_segmentation_txt', '改episode尚未进行任何标注')
         load_imgexpmasks()
         try:
             report_filename = 'annotations/bug_report.json'
@@ -713,7 +726,7 @@ def key_event_handler(sender, app_data, user_data):
     if DVC == 'WIN':
         key_ctrl = 17
     else:  # press linux LCtrl
-        key_ctrl = 341
+        key_ctrl = 342
     if DVC == 'WIN':
         key_esc = 27
     else:  # press linux ESC
@@ -748,10 +761,10 @@ def ctrl_combo_key_callback():
             dpg.configure_item('bind_key_' + i, callback=None)
     elif dpg.is_key_down(dpg.mvKey_S):
         write_json()
-    elif dpg.is_key_down(dpg.mvKey_W): # evaluation or check mode enable
+    elif dpg.is_key_down(dpg.mvKey_W): # lookup mode enable
         dpg.set_value('eval_mode_txt', 'LookUp: enabled')
         load_imgexpmasks()
-    elif dpg.is_key_down(dpg.mvKey_Q): # evaluation or check mode disable
+    elif dpg.is_key_down(dpg.mvKey_Q): # lookup mode disable
         dpg.set_value('eval_mode_txt', 'LookUp: disabled')
         dpg.delete_item('exps_masked_sub')
         with dpg.group(tag='exps_masked_sub', parent='exps_masked', horizontal=True):
@@ -760,51 +773,55 @@ def ctrl_combo_key_callback():
     elif dpg.is_key_down(dpg.mvKey_F): # evaluation or check mode enable
         if dpg.get_value('real_eval_mode_txt').split()[1] == 'disabled':
             dpg.set_value('real_eval_mode_txt', 'Evaluation: enabled')
-            dpg.configure_item('yes_btn', show=True)
-            dpg.configure_item('or_txt', show=True)
-            dpg.configure_item('no_btn', show=True)
-            dpg.configure_item('yes_or_no', show=True)
-            dpg.configure_item('comment_panel', show=True)
-            cnt = len(episodes) * EVAL_RANDOM_PERCENT
-            cnt = int(cnt) if cnt >= 1 else 1
-            if save_scene == 'None':
-                eval_json_filename = 'annotations/{}_eval.json'.format(save_split)
+            episode_idx = int(dpg.get_value('episode_idx'))
+            if 'frames' not in episodes[episode_idx-1]:
+                dpg.configure_item('comment_no_segmentation_txt', show=True)
             else:
-                eval_json_filename = 'annotations/{}/{}_eval.json'.format(save_split, save_scene)
-            if os.path.exists(eval_json_filename):
-                with open(eval_json_filename, mode='r') as f:
-                    content = f.read()
-                    if content:
-                        n_episodes = json.loads(content)['episodes']
-                        nn_episodes = []
-                        for n_episode in n_episodes:
-                            for episode in episodes:
-                                if episode['episode_id'] == n_episode['episode_id']:
-                                    if 'evaluation' in n_episode:
-                                        episode['evaluation'] = n_episode['evaluation']
-                                    for i in range(episode['len_frames']):
-                                        if 'commentable' in n_episode['frames'][i]:
-                                            episode['frames'][i]['commentable'] = n_episode['frames'][i]['commentable']
-                                    nn_episodes.append(episode)
-                        episodes = nn_episodes
+                dpg.configure_item('yes_btn', show=True)
+                dpg.configure_item('or_txt', show=True)
+                dpg.configure_item('no_btn', show=True)
+                dpg.configure_item('yes_or_no', show=True)
+                dpg.configure_item('comment_panel', show=True)
+                cnt = len(episodes) * EVAL_RANDOM_PERCENT
+                cnt = int(cnt) if cnt >= 1 else 1
+                if save_scene == 'None':
+                    eval_json_filename = 'annotations/{}_eval.json'.format(save_split)
+                else:
+                    eval_json_filename = 'annotations/{}/{}_eval.json'.format(save_split, save_scene)
+                if os.path.exists(eval_json_filename):
+                    with open(eval_json_filename, mode='r') as f:
+                        content = f.read()
+                        if content:
+                            n_episodes = json.loads(content)['episodes']
+                            nn_episodes = []
+                            for n_episode in n_episodes:
+                                for episode in episodes:
+                                    if episode['episode_id'] == n_episode['episode_id']:
+                                        if 'evaluation' in n_episode:
+                                            episode['evaluation'] = n_episode['evaluation']
+                                        for i in range(episode['len_frames']):
+                                            if 'commentable' in n_episode['frames'][i]:
+                                                episode['frames'][i]['commentable'] = n_episode['frames'][i]['commentable']
+                                        nn_episodes.append(episode)
+                            episodes = nn_episodes
+                            dpg.configure_item('loading_indicator_group', show=False)
+                        else:   # not file.close so no content in the json file
+                            try:
+                                episodes = random.sample(episodes, cnt)
+                                dpg.configure_item('loading_indicator_group', show=False)
+                            except:
+                                dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(eval_json_filename))
+                                dpg.configure_item('load_status_modal', show=True)
+                                dpg.configure_item('loading_indicator_group', show=False)
+                else:
+                    try:
+                        episodes = random.sample(episodes, cnt)
                         dpg.configure_item('loading_indicator_group', show=False)
-                    else:   # not file.close so no content in the json file
-                        try:
-                            episodes = random.sample(episodes, cnt)
-                            dpg.configure_item('loading_indicator_group', show=False)
-                        except:
-                            dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(eval_json_filename))
-                            dpg.configure_item('load_status_modal', show=True)
-                            dpg.configure_item('loading_indicator_group', show=False)
-            else:
-                try:
-                    episodes = random.sample(episodes, cnt)
-                    dpg.configure_item('loading_indicator_group', show=False)
-                except:
-                    dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(eval_json_filename))
-                    dpg.configure_item('load_status_modal', show=True)
-                    dpg.configure_item('loading_indicator_group', show=False)
-            idx_callback(None, None, ['set', 'episodes', 1])
+                    except:
+                        dpg.set_value('load_status_txt', 'Load {} failed, file does not exists!'.format(eval_json_filename))
+                        dpg.configure_item('load_status_modal', show=True)
+                        dpg.configure_item('loading_indicator_group', show=False)
+                idx_callback(None, None, ['set', 'episodes', 1])
     elif dpg.is_key_down(dpg.mvKey_G): # evaluation or check mode disable
         if dpg.get_value('real_eval_mode_txt').split()[1] == 'enabled':
             dpg.set_value('real_eval_mode_txt', 'Evaluation: disabled')
@@ -812,6 +829,7 @@ def ctrl_combo_key_callback():
             dpg.configure_item('or_txt', show=False)
             dpg.configure_item('no_btn', show=False)
             dpg.configure_item('yes_or_no', show=False)
+            dpg.configure_item('comment_no_segmentation_txt', show=False)
             dpg.configure_item('comment_panel', show=False)
             load_json()
             idx_callback(None, None, ['set', 'episodes', 1])
@@ -950,7 +968,7 @@ def main(args):
         if DVC == 'WIN':
             dpg.add_key_press_handler(dpg.mvKey_Control, callback=key_event_handler, tag='bind_key_ctrl')
         else:
-            dpg.add_key_press_handler(dpg.mvKey_LControl, callback=key_event_handler, tag='bind_key_ctrl') # linux adaption
+            dpg.add_key_press_handler(dpg.mvKey_Alt, callback=key_event_handler, tag='bind_key_ctrl') # linux adaption
         dpg.add_key_press_handler(dpg.mvKey_H, callback=key_event_handler, tag='bind_key_h')
         dpg.add_key_press_handler(dpg.mvKey_J, callback=key_event_handler, tag='bind_key_j')
         dpg.add_key_press_handler(dpg.mvKey_K, callback=key_event_handler, tag='bind_key_k')
@@ -1034,6 +1052,7 @@ def main(args):
             dpg.add_text('or', tag='or_txt', show=False)
             dpg.add_button(label='No', tag='no_btn', show=False, callback=eval_callback, user_data='no')
             dpg.add_text('UnKnown', tag='yes_or_no', show=False)
+            dpg.add_text('尚未进行标注，请完整标注后再重新评估!', tag='comment_no_segmentation_txt', show=False, color=(255, 0, 0))
 
 
         # Origin and segmentation frames show and operation space
