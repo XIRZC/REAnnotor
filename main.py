@@ -1,7 +1,6 @@
 # author: mrxirzzz
 
 # internal packages imported
-from logging import PlaceHolder
 import dearpygui.dearpygui as dpg
 import os
 import argparse
