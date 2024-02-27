@@ -1,6 +1,6 @@
-# Annotation Software for AirVLN Referring Expression
+# Annotation Software for VLN Referring Expression
 
-This is an annotation software applying to AirVLN dataset for annotating referring objects in the instruction for each navigation step.
+This is an annotation software applying to VLN dataset for annotating referring objects in the instruction for each navigation step.
 
 ![ScreenShots](resources/screenshots.png)
 
@@ -26,7 +26,7 @@ Just run `git clone https://github.com/XIRZC/REAnnotor.git` for cloning the appl
 
 ### Data
 
-Preparing the AirVLN dataset into `scenes` folder which comprises of 25 airsim scenarios, and we will provide you with download links.
+Preparing the VLN dataset into `scenes` folder which comprises of 25 airsim scenarios, and we will provide you with download links.
 
 After downloading 25 scenarios, you can just use `scripts/stsplit.sh` for whole split scene running in the background, or use `scripts/stscene.sh` for single scene running for scene-seperate case. And you must ensure you have `settings` subfolder in the root path.
 
@@ -141,6 +141,6 @@ And here are several steps for annotating referring objects list below(w. demons
 
 2. Evaluation Mode(Ctrl + F for enabling, Ctrl + G for disabling): randomly shuffle 10% episodes for evalulation
 
-3. BugReport Mode(Just Editing): point out errors in the original AirVLN Dataset Annotations
+3. BugReport Mode(Just Editing): point out errors in the original VLN Dataset Annotations
 
 4. Dark Mode(Ctrl + R for dark theme, Ctrl + T for light theme)
